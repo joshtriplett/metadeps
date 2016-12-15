@@ -4,7 +4,7 @@ declarative, so other tools can read them as well.
 
 # Usage
 
-In your `Cargo.toml`, add the following to your `[dependencies]`:
+In your `Cargo.toml`, add the following to your `[build-dependencies]`:
 
 ```toml
 metadeps = "1"
