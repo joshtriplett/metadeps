@@ -1,6 +1,6 @@
 [package]
 name = "metadeps"
-version = "1.0.2"
+version = "1.1.0"
 authors = ["Josh Triplett <josh@joshtriplett.org>"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/joshtriplett/metadeps"

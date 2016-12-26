@@ -1,3 +1,4 @@
 [package.metadata.pkg-config]
 testdata = "4"
-testlib = "1"
+testlib = { version = "1", feature = "test-feature" }
+testmore = { version = "2", feature = "another-test-feature" }

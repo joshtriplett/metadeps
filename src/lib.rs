@@ -7,7 +7,7 @@
 //! ```toml
 //! [package.metadata.pkg-config]
 //! testlib = "1.2"
-//! testdata = "4.5"
+//! testdata = { version = "4.5", feature = "some-feature" }
 //! ```
 
 #![deny(missing_docs, warnings)]
@@ -54,11 +54,30 @@ pub fn probe() -> Result<HashMap<String, Library>> {
         format!("{} not a table in {}", key, path.display())
     ));
     let mut libraries = HashMap::new();
-    for (name, version) in table {
-        let version_str = try!(version.as_str().ok_or(
-            format!("{}.{} not a string in {}", key, name, path.display())
-        ));
-        let library = try!(Config::new().atleast_version(version_str).probe(name));
+    for (name, value) in table {
+        let ref version = match value {
+            &toml::Value::String(ref s) => s,
+            &toml::Value::Table(ref t) => {
+                let mut feature = None;
+                let mut version = None;
+                for (tname, tvalue) in t {
+                    match (tname.as_str(), tvalue) {
+                        ("feature", &toml::Value::String(ref s)) => { feature = Some(s); }
+                        ("version", &toml::Value::String(ref s)) => { version = Some(s); }
+                        _ => bail!("Unexpected key {}.{}.{} type {}", key, name, tname, tvalue.type_str()),
+                    }
+                }
+                if let Some(feature) = feature {
+                    let var = format!("CARGO_FEATURE_{}", feature.to_uppercase().replace('-', "_"));
+                    if env::var_os(var).is_none() {
+                        continue;
+                    }
+                }
+                try!(version.ok_or(format!("No version in {}.{}", key, name)))
+            }
+            _ => bail!("{}.{} not a string or table", key, name),
+        };
+        let library = try!(Config::new().atleast_version(&version).probe(name));
         libraries.insert(name.clone(), library);
     }
     Ok(libraries)

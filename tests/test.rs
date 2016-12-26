@@ -14,6 +14,7 @@ fn toml(path: &str) -> metadeps::Result<std::collections::HashMap<String, pkg_co
     let _l = LOCK.lock();
     env::set_var("PKG_CONFIG_PATH", &env::current_dir().unwrap().join("tests"));
     env::set_var("CARGO_MANIFEST_DIR", &env::current_dir().unwrap().join("tests").join(path));
+    env::set_var("CARGO_FEATURE_TEST_FEATURE", "");
     metadeps::probe()
 }
 
@@ -24,6 +25,7 @@ fn good() {
     assert_eq!(testlib.version, "1.2.3");
     let testdata = libraries.get("testdata").unwrap();
     assert_eq!(testdata.version, "4.5.6");
+    assert!(libraries.get("testmore").is_none());
 }
 
 fn toml_err(path: &str, err_starts_with: &str) {
@@ -49,6 +51,26 @@ fn not_table() {
 }
 
 #[test]
+fn version_missing() {
+    toml_err("toml-version-missing", "No version in package.metadata.pkg-config.testlib");
+}
+
+#[test]
 fn version_not_string() {
-    toml_err("toml-version-not-string", "package.metadata.pkg-config.testlib not a string in");
+    toml_err("toml-version-not-string", "package.metadata.pkg-config.testlib not a string or table");
+}
+
+#[test]
+fn version_in_table_not_string() {
+    toml_err("toml-version-in-table-not-string", "Unexpected key package.metadata.pkg-config.testlib.version type integer");
+}
+
+#[test]
+fn feature_not_string() {
+    toml_err("toml-feature-not-string", "Unexpected key package.metadata.pkg-config.testlib.feature type integer");
+}
+
+#[test]
+fn unexpected_key() {
+    toml_err("toml-unexpected-key", "Unexpected key package.metadata.pkg-config.testlib.color type string");
 }

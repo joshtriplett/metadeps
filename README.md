@@ -10,13 +10,13 @@ In your `Cargo.toml`, add the following to your `[build-dependencies]`:
 metadeps = "1"
 ```
 
-Then, to declare a dependency on `testlib >= 1.2` and `testdata >= 4.5`, add
-the following section:
+Then, to declare a dependency on `testlib >= 1.2`, and a conditional dependency
+on `testdata >= 4.5`, add the following section:
 
 ```toml
 [package.metadata.pkg-config]
 testlib = "1.2"
-testdata = "4.5"
+testdata = { version = "4.5", feature = "use-testdata" }
 ```
 
 In your `build.rs`, add:
