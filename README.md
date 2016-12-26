@@ -7,7 +7,7 @@ declarative, so other tools can read them as well.
 In your `Cargo.toml`, add the following to your `[build-dependencies]`:
 
 ```toml
-metadeps = "1"
+metadeps = "1.1"
 ```
 
 Then, to declare a dependency on `testlib >= 1.2`, and a conditional dependency
