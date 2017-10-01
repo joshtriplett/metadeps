@@ -9,7 +9,7 @@ description = "Run pkg-config from declarative dependencies in Cargo.toml"
 keywords = ["pkg-config", "build-dependencies", "build-depends", "manifest", "metadata"]
 
 [dependencies]
-error-chain = { version = "0.10", default-features = false }
+error-chain = { version = "0.11", default-features = false }
 pkg-config = "0.3.8"
 toml = { version = "0.2", default-features = false }
 
