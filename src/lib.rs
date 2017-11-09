@@ -10,6 +10,7 @@
 //! testdata = { version = "4.5", feature = "some-feature" }
 //! ```
 
+#![allow(unused_doc_comment)]
 #![deny(missing_docs, warnings)]
 
 #[macro_use]
