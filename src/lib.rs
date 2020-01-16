@@ -12,47 +12,44 @@
 
 #![deny(missing_docs, warnings)]
 
-#[macro_use]
-extern crate error_chain;
+extern crate anyhow;
 extern crate pkg_config;
 extern crate toml;
 
+pub use anyhow::{Error, Result};
+
+use anyhow::Context;
+use pkg_config::{Config, Library};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::Read;
-use std::path::PathBuf;
-use pkg_config::{Config, Library};
+use std::path::Path;
 
-error_chain! {
-    foreign_links {
-        PkgConfig(pkg_config::Error) #[doc="pkg-config error"];
-    }
+const KEY: &str = "package.metadata.pkg-config";
+
+fn get_pkgconfig_table(toml: &toml::Value) -> Option<&toml::Value> {
+    toml.get("package")?.get("metadata")?.get("pkg-config")
 }
 
 /// Probe all libraries configured in the Cargo.toml
 /// `[package.metadata.pkg-config]` section.
 pub fn probe() -> Result<HashMap<String, Library>> {
-    let dir = try!(env::var_os("CARGO_MANIFEST_DIR").ok_or("$CARGO_MANIFEST_DIR not set"));
-    let mut path = PathBuf::from(dir);
-    path.push("Cargo.toml");
-    let mut manifest = try!(fs::File::open(&path).chain_err(||
-        format!("Error opening {}", path.display())
-    ));
+    let dir = env::var_os("CARGO_MANIFEST_DIR")
+        .ok_or_else(|| anyhow::anyhow!("$CARGO_MANIFEST_DIR not set"))?;
+    let path = Path::new(&dir).join("Cargo.toml");
     let mut manifest_str = String::new();
-    try!(manifest.read_to_string(&mut manifest_str).chain_err(||
-        format!("Error reading {}", path.display())
-    ));
-    let toml = try!(manifest_str.parse::<toml::Value>().map_err(|e|
-        format!("Error parsing TOML from {}: {:?}", path.display(), e)
-    ));
-    let key = "package.metadata.pkg-config";
-    let meta = try!(toml.lookup(key).ok_or(
-        format!("No {} in {}", key, path.display())
-    ));
-    let table = try!(meta.as_table().ok_or(
-        format!("{} not a table in {}", key, path.display())
-    ));
+    fs::File::open(&path)
+        .with_context(|| format!("Error opening {}", path.display()))?
+        .read_to_string(&mut manifest_str)
+        .with_context(|| format!("Error reading {}", path.display()))?;
+    let toml = manifest_str
+        .parse::<toml::Value>()
+        .with_context(|| format!("Error parsing TOML from {}", path.display()))?;
+    let table = get_pkgconfig_table(&toml)
+        .with_context(|| format!("No {} key in {}", KEY, path.display()))?
+        .as_table()
+        .with_context(|| format!("{} not a table in {}", KEY, path.display()))?;
     let mut libraries = HashMap::new();
     for (name, value) in table {
         let ref version = match value {
@@ -62,9 +59,19 @@ pub fn probe() -> Result<HashMap<String, Library>> {
                 let mut version = None;
                 for (tname, tvalue) in t {
                     match (tname.as_str(), tvalue) {
-                        ("feature", &toml::Value::String(ref s)) => { feature = Some(s); }
-                        ("version", &toml::Value::String(ref s)) => { version = Some(s); }
-                        _ => bail!("Unexpected key {}.{}.{} type {}", key, name, tname, tvalue.type_str()),
+                        ("feature", &toml::Value::String(ref s)) => {
+                            feature = Some(s);
+                        }
+                        ("version", &toml::Value::String(ref s)) => {
+                            version = Some(s);
+                        }
+                        _ => anyhow::bail!(
+                            "Unexpected key {}.{}.{} type {}",
+                            KEY,
+                            name,
+                            tname,
+                            tvalue.type_str()
+                        ),
                     }
                 }
                 if let Some(feature) = feature {
@@ -73,11 +80,11 @@ pub fn probe() -> Result<HashMap<String, Library>> {
                         continue;
                     }
                 }
-                try!(version.ok_or(format!("No version in {}.{}", key, name)))
+                version.ok_or_else(|| anyhow::anyhow!("No version in {}.{}", KEY, name))?
             }
-            _ => bail!("{}.{} not a string or table", key, name),
+            _ => anyhow::bail!("{}.{} not a string or table", KEY, name),
         };
-        let library = try!(Config::new().atleast_version(&version).probe(name));
+        let library = Config::new().atleast_version(&version).probe(name)?;
         libraries.insert(name.clone(), library);
     }
     Ok(libraries)
