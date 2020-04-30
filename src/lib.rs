@@ -133,7 +133,10 @@ pub fn probe() -> Result<HashMap<String, Library>> {
             }
             _ => bail!("{}.{} not a string or table", key, name),
         };
-        let library = Config::new().atleast_version(&version).probe(lib_name)?;
+        let library = Config::new()
+            .atleast_version(&version)
+            .print_system_libs(false)
+            .probe(lib_name)?;
         libraries.insert(name.clone(), library);
     }
     Ok(libraries)
