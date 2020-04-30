@@ -29,6 +29,11 @@ error_chain! {
     }
 }
 
+fn has_feature(feature: &str) -> bool {
+    let var = format!("CARGO_FEATURE_{}", feature.to_uppercase().replace('-', "_"));
+    env::var_os(var).is_some()
+}
+
 /// Probe all libraries configured in the Cargo.toml
 /// `[package.metadata.pkg-config]` section.
 pub fn probe() -> Result<HashMap<String, Library>> {
@@ -82,8 +87,7 @@ pub fn probe() -> Result<HashMap<String, Library>> {
                     }
                 }
                 if let Some(feature) = feature {
-                    let var = format!("CARGO_FEATURE_{}", feature.to_uppercase().replace('-', "_"));
-                    if env::var_os(var).is_none() {
+                    if !has_feature(feature) {
                         continue;
                     }
                 }
