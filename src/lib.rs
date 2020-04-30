@@ -33,27 +33,25 @@ error_chain! {
 /// Probe all libraries configured in the Cargo.toml
 /// `[package.metadata.pkg-config]` section.
 pub fn probe() -> Result<HashMap<String, Library>> {
-    let dir = try!(env::var_os("CARGO_MANIFEST_DIR").ok_or("$CARGO_MANIFEST_DIR not set"));
+    let dir = env::var_os("CARGO_MANIFEST_DIR").ok_or("$CARGO_MANIFEST_DIR not set")?;
     let mut path = PathBuf::from(dir);
     path.push("Cargo.toml");
     let mut manifest =
-        try!(fs::File::open(&path).chain_err(|| format!("Error opening {}", path.display())));
+        fs::File::open(&path).chain_err(|| format!("Error opening {}", path.display()))?;
     let mut manifest_str = String::new();
-    try!(manifest
+    manifest
         .read_to_string(&mut manifest_str)
-        .chain_err(|| format!("Error reading {}", path.display())));
-    let toml = try!(manifest_str.parse::<toml::Value>().map_err(|e| format!(
-        "Error parsing TOML from {}: {:?}",
-        path.display(),
-        e
-    )));
+        .chain_err(|| format!("Error reading {}", path.display()))?;
+    let toml = manifest_str
+        .parse::<toml::Value>()
+        .map_err(|e| format!("Error parsing TOML from {}: {:?}", path.display(), e))?;
     let key = "package.metadata.pkg-config";
-    let meta = try!(toml
+    let meta = toml
         .lookup(key)
-        .ok_or(format!("No {} in {}", key, path.display())));
-    let table = try!(meta
+        .ok_or(format!("No {} in {}", key, path.display()))?;
+    let table = meta
         .as_table()
-        .ok_or(format!("{} not a table in {}", key, path.display())));
+        .ok_or(format!("{} not a table in {}", key, path.display()))?;
     let mut libraries = HashMap::new();
     for (name, value) in table {
         let ref version = match value {
@@ -84,11 +82,11 @@ pub fn probe() -> Result<HashMap<String, Library>> {
                         continue;
                     }
                 }
-                try!(version.ok_or(format!("No version in {}.{}", key, name)))
+                version.ok_or(format!("No version in {}.{}", key, name))?
             }
             _ => bail!("{}.{} not a string or table", key, name),
         };
-        let library = try!(Config::new().atleast_version(&version).probe(name));
+        let library = Config::new().atleast_version(&version).probe(name)?;
         libraries.insert(name.clone(), library);
     }
     Ok(libraries)
