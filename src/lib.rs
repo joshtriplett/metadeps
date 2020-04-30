@@ -56,7 +56,7 @@ pub fn probe() -> Result<HashMap<String, Library>> {
         .ok_or(format!("{} not a table in {}", key, path.display()))?;
     let mut libraries = HashMap::new();
     for (name, value) in table {
-        let ref version = match value {
+        let version = match value {
             &toml::Value::String(ref s) => s,
             &toml::Value::Table(ref t) => {
                 let mut feature = None;
