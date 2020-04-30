@@ -14,8 +14,6 @@
 
 #[macro_use]
 extern crate error_chain;
-extern crate pkg_config;
-extern crate toml;
 
 use pkg_config::{Config, Library};
 use std::collections::HashMap;
@@ -57,8 +55,8 @@ pub fn probe() -> Result<HashMap<String, Library>> {
     let mut libraries = HashMap::new();
     for (name, value) in table {
         let version = match value {
-            &toml::Value::String(ref s) => s,
-            &toml::Value::Table(ref t) => {
+            toml::Value::String(ref s) => s,
+            toml::Value::Table(ref t) => {
                 let mut feature = None;
                 let mut version = None;
                 for (tname, tvalue) in t {

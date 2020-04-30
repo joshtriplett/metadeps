@@ -1,7 +1,5 @@
 #[macro_use]
 extern crate lazy_static;
-extern crate metadeps;
-extern crate pkg_config;
 
 use std::env;
 use std::sync::Mutex;
