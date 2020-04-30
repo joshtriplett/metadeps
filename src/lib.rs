@@ -17,12 +17,12 @@ extern crate error_chain;
 extern crate pkg_config;
 extern crate toml;
 
+use pkg_config::{Config, Library};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
-use pkg_config::{Config, Library};
 
 error_chain! {
     foreign_links {
@@ -36,23 +36,24 @@ pub fn probe() -> Result<HashMap<String, Library>> {
     let dir = try!(env::var_os("CARGO_MANIFEST_DIR").ok_or("$CARGO_MANIFEST_DIR not set"));
     let mut path = PathBuf::from(dir);
     path.push("Cargo.toml");
-    let mut manifest = try!(fs::File::open(&path).chain_err(||
-        format!("Error opening {}", path.display())
-    ));
+    let mut manifest =
+        try!(fs::File::open(&path).chain_err(|| format!("Error opening {}", path.display())));
     let mut manifest_str = String::new();
-    try!(manifest.read_to_string(&mut manifest_str).chain_err(||
-        format!("Error reading {}", path.display())
-    ));
-    let toml = try!(manifest_str.parse::<toml::Value>().map_err(|e|
-        format!("Error parsing TOML from {}: {:?}", path.display(), e)
-    ));
+    try!(manifest
+        .read_to_string(&mut manifest_str)
+        .chain_err(|| format!("Error reading {}", path.display())));
+    let toml = try!(manifest_str.parse::<toml::Value>().map_err(|e| format!(
+        "Error parsing TOML from {}: {:?}",
+        path.display(),
+        e
+    )));
     let key = "package.metadata.pkg-config";
-    let meta = try!(toml.lookup(key).ok_or(
-        format!("No {} in {}", key, path.display())
-    ));
-    let table = try!(meta.as_table().ok_or(
-        format!("{} not a table in {}", key, path.display())
-    ));
+    let meta = try!(toml
+        .lookup(key)
+        .ok_or(format!("No {} in {}", key, path.display())));
+    let table = try!(meta
+        .as_table()
+        .ok_or(format!("{} not a table in {}", key, path.display())));
     let mut libraries = HashMap::new();
     for (name, value) in table {
         let ref version = match value {
@@ -62,9 +63,19 @@ pub fn probe() -> Result<HashMap<String, Library>> {
                 let mut version = None;
                 for (tname, tvalue) in t {
                     match (tname.as_str(), tvalue) {
-                        ("feature", &toml::Value::String(ref s)) => { feature = Some(s); }
-                        ("version", &toml::Value::String(ref s)) => { version = Some(s); }
-                        _ => bail!("Unexpected key {}.{}.{} type {}", key, name, tname, tvalue.type_str()),
+                        ("feature", &toml::Value::String(ref s)) => {
+                            feature = Some(s);
+                        }
+                        ("version", &toml::Value::String(ref s)) => {
+                            version = Some(s);
+                        }
+                        _ => bail!(
+                            "Unexpected key {}.{}.{} type {}",
+                            key,
+                            name,
+                            tname,
+                            tvalue.type_str()
+                        ),
                     }
                 }
                 if let Some(feature) = feature {
