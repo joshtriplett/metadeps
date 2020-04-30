@@ -47,7 +47,9 @@ pub fn probe() -> Result<HashMap<String, Library>> {
         .map_err(|e| format!("Error parsing TOML from {}: {:?}", path.display(), e))?;
     let key = "package.metadata.pkg-config";
     let meta = toml
-        .lookup(key)
+        .get("package")
+        .and_then(|v| v.get("metadata"))
+        .and_then(|v| v.get("pkg-config"))
         .ok_or(format!("No {} in {}", key, path.display()))?;
     let table = meta
         .as_table()

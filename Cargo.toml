@@ -10,7 +10,7 @@ keywords = ["pkg-config", "build-dependencies", "build-depends", "manifest", "me
 [dependencies]
 error-chain = { version = "0.12", default-features = false }
 pkg-config = "0.3.8"
-toml = { version = "0.2", default-features = false }
+toml = { version = "0.5", default-features = false }
 
 [dev-dependencies]
 lazy_static = "1"
