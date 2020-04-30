@@ -1,0 +1,2 @@
+[package.metadata.pkg-config]
+testdata = { version = "4", feature-versions = { v5 = "5", v6 = "6" }}

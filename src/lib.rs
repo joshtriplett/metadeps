@@ -9,6 +9,7 @@
 //! testlib = "1.2"
 //! testdata = { version = "4.5", feature = "some-feature" }
 //! glib = { name = "glib-2.0", version = "2.64" }
+//! gstreamer = { name = "gstreamer-1.0", version = "1.0", feature-versions = { v1_2 = "1.2", v1_4 = "1.4" }}
 //! ```
 
 #![deny(missing_docs, warnings)]
@@ -22,6 +23,7 @@ use std::env;
 use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
+use version_compare::VersionCompare;
 
 error_chain! {
     foreign_links {
@@ -66,6 +68,7 @@ pub fn probe() -> Result<HashMap<String, Library>> {
                 let mut feature = None;
                 let mut version = None;
                 let mut lib_name = None;
+                let mut enabled_feature_versions = Vec::new();
                 for (tname, tvalue) in t {
                     match (tname.as_str(), tvalue) {
                         ("feature", &toml::Value::String(ref s)) => {
@@ -76,6 +79,22 @@ pub fn probe() -> Result<HashMap<String, Library>> {
                         }
                         ("name", &toml::Value::String(ref s)) => {
                             lib_name = Some(s);
+                        }
+                        ("feature-versions", &toml::Value::Table(ref feature_versions)) => {
+                            for (k, v) in feature_versions {
+                                match (k.as_str(), v) {
+                                    (_, &toml::Value::String(ref feat_vers)) => {
+                                        if has_feature(&k) {
+                                            enabled_feature_versions.push(feat_vers);
+                                        }
+                                    }
+                                    _ => bail!(
+                                        "Unexpected feature-version key: {} type {}",
+                                        k,
+                                        v.type_str()
+                                    ),
+                                }
+                            }
                         }
                         _ => bail!(
                             "Unexpected key {}.{}.{} type {}",
@@ -91,6 +110,22 @@ pub fn probe() -> Result<HashMap<String, Library>> {
                         continue;
                     }
                 }
+
+                let version = {
+                    // Pick the highest feature enabled version
+                    if !enabled_feature_versions.is_empty() {
+                        enabled_feature_versions.sort_by(|a, b| {
+                            VersionCompare::compare(b, a)
+                                .expect("failed to compare versions")
+                                .ord()
+                                .expect("invalid version")
+                        });
+                        Some(enabled_feature_versions[0])
+                    } else {
+                        version
+                    }
+                };
+
                 (
                     lib_name.unwrap_or(name),
                     version.ok_or(format!("No version in {}.{}", key, name))?,

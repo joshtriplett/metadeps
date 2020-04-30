@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+use pkg_config;
 use std::env;
 use std::sync::Mutex;
 
@@ -39,6 +40,24 @@ fn toml_err(path: &str, err_starts_with: &str) {
             "Expected error to start with: {:?}\nGot error: {:?}",
             err_starts_with, err
         );
+    }
+}
+
+// Assert a PkgConfig error because requested lib version cannot be found
+fn toml_pkg_config_err_version(path: &str, expected_version: &str) {
+    let err = toml(path).unwrap_err();
+    match err.kind() {
+        metadeps::ErrorKind::PkgConfig(e) => match e {
+            pkg_config::Error::Failure {
+                command: cmd,
+                output: _,
+            } => {
+                let s = format!(">= {}\"", expected_version);
+                assert!(cmd.ends_with(&s));
+            }
+            _ => panic!("Wrong pkg-config error type"),
+        },
+        _ => panic!("Wrong error type"),
     }
 }
 
@@ -105,4 +124,19 @@ fn override_name() {
     let libraries = toml("toml-override-name").unwrap();
     let testlib = libraries.get("testlib").unwrap();
     assert_eq!(testlib.version, "2.0.0");
+}
+
+#[test]
+fn feature_versions() {
+    let libraries = toml("toml-feature-versions").unwrap();
+    let testdata = libraries.get("testdata").unwrap();
+    assert_eq!(testdata.version, "4.5.6");
+
+    // version 5 is not available
+    env::set_var("CARGO_FEATURE_V5", "");
+    toml_pkg_config_err_version("toml-feature-versions", "5");
+
+    // We check the highest version enabled by features
+    env::set_var("CARGO_FEATURE_V6", "");
+    toml_pkg_config_err_version("toml-feature-versions", "6");
 }

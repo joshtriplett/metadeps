@@ -30,3 +30,16 @@ fn main() {
     metadeps::probe().unwrap();
 }
 ```
+
+Dependency versions can also be controlled using features:
+
+```toml
+[features]
+v1_2 = []
+v1_4 = ["v1_4"]
+
+[package.metadata.pkg-config]
+gstreamer = { name = "gstreamer-1.0", version = "1.0", feature-versions = { v1_2 = "1.2", v1_4 = "1.4" }}
+```
+
+In this case the highest version among enabled features will be used.
