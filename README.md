@@ -10,13 +10,15 @@ In your `Cargo.toml`, add the following to your `[build-dependencies]`:
 metadeps = "1.1"
 ```
 
-Then, to declare a dependency on `testlib >= 1.2`, and a conditional dependency
-on `testdata >= 4.5`, add the following section:
+Then, to declare a dependency on `testlib >= 1.2`, a conditional dependency
+on `testdata >= 4.5` and a dependency on `glib-2.0 >= 2.64`
+add the following section:
 
 ```toml
 [package.metadata.pkg-config]
 testlib = "1.2"
 testdata = { version = "4.5", feature = "use-testdata" }
+glib = { name = "glib-2.0", version = "2.64" }
 ```
 
 In your `build.rs`, add:

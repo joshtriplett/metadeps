@@ -99,3 +99,10 @@ fn unexpected_key() {
         "Unexpected key package.metadata.pkg-config.testlib.color type string",
     );
 }
+
+#[test]
+fn override_name() {
+    let libraries = toml("toml-override-name").unwrap();
+    let testlib = libraries.get("testlib").unwrap();
+    assert_eq!(testlib.version, "2.0.0");
+}

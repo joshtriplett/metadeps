@@ -8,6 +8,7 @@
 //! [package.metadata.pkg-config]
 //! testlib = "1.2"
 //! testdata = { version = "4.5", feature = "some-feature" }
+//! glib = { name = "glib-2.0", version = "2.64" }
 //! ```
 
 #![deny(missing_docs, warnings)]
@@ -54,11 +55,12 @@ pub fn probe() -> Result<HashMap<String, Library>> {
         .ok_or(format!("{} not a table in {}", key, path.display()))?;
     let mut libraries = HashMap::new();
     for (name, value) in table {
-        let version = match value {
-            toml::Value::String(ref s) => s,
+        let (lib_name, version) = match value {
+            toml::Value::String(ref s) => (name, s),
             toml::Value::Table(ref t) => {
                 let mut feature = None;
                 let mut version = None;
+                let mut lib_name = None;
                 for (tname, tvalue) in t {
                     match (tname.as_str(), tvalue) {
                         ("feature", &toml::Value::String(ref s)) => {
@@ -66,6 +68,9 @@ pub fn probe() -> Result<HashMap<String, Library>> {
                         }
                         ("version", &toml::Value::String(ref s)) => {
                             version = Some(s);
+                        }
+                        ("name", &toml::Value::String(ref s)) => {
+                            lib_name = Some(s);
                         }
                         _ => bail!(
                             "Unexpected key {}.{}.{} type {}",
@@ -82,11 +87,14 @@ pub fn probe() -> Result<HashMap<String, Library>> {
                         continue;
                     }
                 }
-                version.ok_or(format!("No version in {}.{}", key, name))?
+                (
+                    lib_name.unwrap_or(name),
+                    version.ok_or(format!("No version in {}.{}", key, name))?,
+                )
             }
             _ => bail!("{}.{} not a string or table", key, name),
         };
-        let library = Config::new().atleast_version(&version).probe(name)?;
+        let library = Config::new().atleast_version(&version).probe(lib_name)?;
         libraries.insert(name.clone(), library);
     }
     Ok(libraries)
