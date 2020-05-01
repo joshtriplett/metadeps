@@ -2,13 +2,18 @@ use pkg_config;
 use std::env;
 use std::sync::Mutex;
 
-use super::{probe, ErrorKind, Result};
+use super::{probe_full, BuildFlags, ErrorKind, Result};
 
 lazy_static! {
     static ref LOCK: Mutex<()> = Mutex::new(());
 }
 
-fn toml(path: &str) -> Result<std::collections::HashMap<String, pkg_config::Library>> {
+fn toml(
+    path: &str,
+) -> Result<(
+    std::collections::HashMap<String, pkg_config::Library>,
+    BuildFlags,
+)> {
     let _l = LOCK.lock();
     env::set_var(
         "PKG_CONFIG_PATH",
@@ -23,17 +28,19 @@ fn toml(path: &str) -> Result<std::collections::HashMap<String, pkg_config::Libr
             .join(path),
     );
     env::set_var("CARGO_FEATURE_TEST_FEATURE", "");
-    probe()
+    probe_full()
 }
 
 #[test]
 fn good() {
-    let libraries = toml("toml-good").unwrap();
+    let (libraries, flags) = toml("toml-good").unwrap();
     let testlib = libraries.get("testlib").unwrap();
     assert_eq!(testlib.version, "1.2.3");
     let testdata = libraries.get("testdata").unwrap();
     assert_eq!(testdata.version, "4.5.6");
     assert!(libraries.get("testmore").is_none());
+
+    assert_eq!(flags.to_string(), "cargo:include=/usr/include/testlib\n");
 }
 
 fn toml_err(path: &str, err_starts_with: &str) {
@@ -124,14 +131,14 @@ fn unexpected_key() {
 
 #[test]
 fn override_name() {
-    let libraries = toml("toml-override-name").unwrap();
+    let (libraries, _) = toml("toml-override-name").unwrap();
     let testlib = libraries.get("testlib").unwrap();
     assert_eq!(testlib.version, "2.0.0");
 }
 
 #[test]
 fn feature_versions() {
-    let libraries = toml("toml-feature-versions").unwrap();
+    let (libraries, _) = toml("toml-feature-versions").unwrap();
     let testdata = libraries.get("testdata").unwrap();
     assert_eq!(testdata.version, "4.5.6");
 

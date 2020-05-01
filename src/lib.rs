@@ -27,6 +27,7 @@ mod test;
 use pkg_config::{Config, Library};
 use std::collections::HashMap;
 use std::env;
+use std::fmt;
 use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
@@ -43,9 +44,7 @@ fn has_feature(feature: &str) -> bool {
     env::var_os(var).is_some()
 }
 
-/// Probe all libraries configured in the Cargo.toml
-/// `[package.metadata.pkg-config]` section.
-pub fn probe() -> Result<HashMap<String, Library>> {
+fn probe_pkg_config() -> Result<HashMap<String, Library>> {
     let dir = env::var_os("CARGO_MANIFEST_DIR").ok_or("$CARGO_MANIFEST_DIR not set")?;
     let mut path = PathBuf::from(dir);
     path.push("Cargo.toml");
@@ -146,5 +145,77 @@ pub fn probe() -> Result<HashMap<String, Library>> {
             .probe(lib_name)?;
         libraries.insert(name.clone(), library);
     }
+    Ok(libraries)
+}
+
+#[derive(Debug, PartialEq)]
+enum BuildFlag {
+    Include(String),
+}
+
+impl fmt::Display for BuildFlag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BuildFlag::Include(paths) => write!(f, "include={}", paths),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct BuildFlags(Vec<BuildFlag>);
+
+impl BuildFlags {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn add(&mut self, flag: BuildFlag) {
+        self.0.push(flag);
+    }
+}
+
+impl fmt::Display for BuildFlags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for flag in self.0.iter() {
+            writeln!(f, "cargo:{}", flag)?;
+        }
+        Ok(())
+    }
+}
+
+fn gen_flags(libraries: &HashMap<String, Library>) -> BuildFlags {
+    let mut flags = BuildFlags::new();
+    let mut include_paths = Vec::new();
+
+    for (_name, lib) in libraries.iter() {
+        include_paths.extend(lib.include_paths.clone());
+    }
+
+    // Export DEP_$CRATE_INCLUDE env variable with the headers paths,
+    // see https://kornel.ski/rust-sys-crate#headers
+    if !include_paths.is_empty() {
+        if let Ok(paths) = std::env::join_paths(include_paths) {
+            flags.add(BuildFlag::Include(paths.to_string_lossy().to_string()));
+        }
+    }
+
+    flags
+}
+
+fn probe_full() -> Result<(HashMap<String, Library>, BuildFlags)> {
+    let libraries = probe_pkg_config()?;
+    let flags = gen_flags(&libraries);
+
+    Ok((libraries, flags))
+}
+
+/// Probe all libraries configured in the Cargo.toml
+/// `[package.metadata.pkg-config]` section.
+pub fn probe() -> Result<HashMap<String, Library>> {
+    let (libraries, flags) = probe_full()?;
+
+    // Output cargo flags
+    println!("{}", flags);
+
     Ok(libraries)
 }
