@@ -142,21 +142,31 @@ fn probe_pkg_config() -> Result<HashMap<String, Library>> {
         let library = Config::new()
             .atleast_version(&version)
             .print_system_libs(false)
+            .cargo_metadata(false)
             .probe(lib_name)?;
         libraries.insert(name.clone(), library);
     }
     Ok(libraries)
 }
 
+// TODO: add support for "rustc-link-lib=static=" ?
 #[derive(Debug, PartialEq)]
 enum BuildFlag {
     Include(String),
+    SearchNative(String),
+    SearchFramework(String),
+    Lib(String),
+    LibFramework(String),
 }
 
 impl fmt::Display for BuildFlag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BuildFlag::Include(paths) => write!(f, "include={}", paths),
+            BuildFlag::SearchNative(lib) => write!(f, "rustc-link-search=native={}", lib),
+            BuildFlag::SearchFramework(lib) => write!(f, "rustc-link-search=framework={}", lib),
+            BuildFlag::Lib(lib) => write!(f, "rustc-link-lib={}", lib),
+            BuildFlag::LibFramework(lib) => write!(f, "rustc-link-lib=framework={}", lib),
         }
     }
 }
@@ -189,6 +199,19 @@ fn gen_flags(libraries: &HashMap<String, Library>) -> BuildFlags {
 
     for (_name, lib) in libraries.iter() {
         include_paths.extend(lib.include_paths.clone());
+
+        lib.link_paths
+            .iter()
+            .for_each(|l| flags.add(BuildFlag::SearchNative(l.to_string_lossy().to_string())));
+        lib.framework_paths
+            .iter()
+            .for_each(|f| flags.add(BuildFlag::SearchFramework(f.to_string_lossy().to_string())));
+        lib.libs
+            .iter()
+            .for_each(|l| flags.add(BuildFlag::Lib(l.clone())));
+        lib.frameworks
+            .iter()
+            .for_each(|f| flags.add(BuildFlag::LibFramework(f.clone())));
     }
 
     // Export DEP_$CRATE_INCLUDE env variable with the headers paths,

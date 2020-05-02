@@ -40,7 +40,15 @@ fn good() {
     assert_eq!(testdata.version, "4.5.6");
     assert!(libraries.get("testmore").is_none());
 
-    assert_eq!(flags.to_string(), "cargo:include=/usr/include/testlib\n");
+    assert_eq!(
+        flags.to_string(),
+        r#"cargo:rustc-link-search=native=/usr/lib/x86_64-linux-gnu
+cargo:rustc-link-search=framework=/usr/lib/x86_64-linux-gnu
+cargo:rustc-link-lib=test
+cargo:rustc-link-lib=framework=someframework
+cargo:include=/usr/include/testlib
+"#
+    );
 }
 
 fn toml_err(path: &str, err_starts_with: &str) {
