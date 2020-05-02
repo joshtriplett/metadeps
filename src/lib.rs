@@ -39,13 +39,36 @@ error_chain! {
     }
 }
 
-fn has_feature(feature: &str) -> bool {
-    let var = format!("CARGO_FEATURE_{}", feature.to_uppercase().replace('-', "_"));
-    env::var_os(var).is_some()
+#[derive(Debug)]
+enum EnvVariables {
+    Environnement,
+    #[cfg(test)]
+    Mock(HashMap<&'static str, String>),
 }
 
-fn probe_pkg_config() -> Result<HashMap<String, Library>> {
-    let dir = env::var_os("CARGO_MANIFEST_DIR").ok_or("$CARGO_MANIFEST_DIR not set")?;
+impl EnvVariables {
+    fn contains(&self, var: &str) -> bool {
+        self.get(var).is_some()
+    }
+
+    fn get(&self, var: &str) -> Option<String> {
+        match self {
+            EnvVariables::Environnement => env::var(var).ok(),
+            #[cfg(test)]
+            EnvVariables::Mock(vars) => vars.get(var).cloned(),
+        }
+    }
+}
+
+fn has_feature(env_vars: &EnvVariables, feature: &str) -> bool {
+    let var = format!("CARGO_FEATURE_{}", feature.to_uppercase().replace('-', "_"));
+    env_vars.contains(&var)
+}
+
+fn probe_pkg_config(env_vars: &EnvVariables) -> Result<HashMap<String, Library>> {
+    let dir = env_vars
+        .get("CARGO_MANIFEST_DIR")
+        .ok_or("$CARGO_MANIFEST_DIR not set")?;
     let mut path = PathBuf::from(dir);
     path.push("Cargo.toml");
     let mut manifest =
@@ -90,7 +113,7 @@ fn probe_pkg_config() -> Result<HashMap<String, Library>> {
                             for (k, v) in feature_versions {
                                 match (k.as_str(), v) {
                                     (_, &toml::Value::String(ref feat_vers)) => {
-                                        if has_feature(&k) {
+                                        if has_feature(&env_vars, &k) {
                                             enabled_feature_versions.push(feat_vers);
                                         }
                                     }
@@ -112,7 +135,7 @@ fn probe_pkg_config() -> Result<HashMap<String, Library>> {
                     }
                 }
                 if let Some(feature) = feature {
-                    if !has_feature(feature) {
+                    if !has_feature(&env_vars, feature) {
                         continue;
                     }
                 }
@@ -225,8 +248,8 @@ fn gen_flags(libraries: &HashMap<String, Library>) -> BuildFlags {
     flags
 }
 
-fn probe_full() -> Result<(HashMap<String, Library>, BuildFlags)> {
-    let libraries = probe_pkg_config()?;
+fn probe_full(env: EnvVariables) -> Result<(HashMap<String, Library>, BuildFlags)> {
+    let libraries = probe_pkg_config(&env)?;
     let flags = gen_flags(&libraries);
 
     Ok((libraries, flags))
@@ -235,7 +258,8 @@ fn probe_full() -> Result<(HashMap<String, Library>, BuildFlags)> {
 /// Probe all libraries configured in the Cargo.toml
 /// `[package.metadata.pkg-config]` section.
 pub fn probe() -> Result<HashMap<String, Library>> {
-    let (libraries, flags) = probe_full()?;
+    let env = EnvVariables::Environnement;
+    let (libraries, flags) = probe_full(env)?;
 
     // Output cargo flags
     println!("{}", flags);

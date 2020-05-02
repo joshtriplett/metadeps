@@ -1,8 +1,9 @@
 use pkg_config;
+use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
 
-use super::{probe_full, BuildFlags, ErrorKind, Result};
+use super::{probe_full, BuildFlags, EnvVariables, ErrorKind, Result};
 
 lazy_static! {
     static ref LOCK: Mutex<()> = Mutex::new(());
@@ -10,30 +11,43 @@ lazy_static! {
 
 fn toml(
     path: &str,
+    env: Vec<(&'static str, &'static str)>,
 ) -> Result<(
     std::collections::HashMap<String, pkg_config::Library>,
     BuildFlags,
 )> {
-    let _l = LOCK.lock();
-    env::set_var(
-        "PKG_CONFIG_PATH",
-        &env::current_dir().unwrap().join("src").join("tests"),
-    );
-    env::set_var(
+    {
+        // PKG_CONFIG_PATH is read by pkg-config so we need to actually change the env
+        let _l = LOCK.lock();
+        env::set_var(
+            "PKG_CONFIG_PATH",
+            &env::current_dir().unwrap().join("src").join("tests"),
+        );
+    }
+
+    let mut hash = HashMap::new();
+    hash.insert(
         "CARGO_MANIFEST_DIR",
-        &env::current_dir()
+        env::current_dir()
             .unwrap()
             .join("src")
             .join("tests")
-            .join(path),
+            .join(path)
+            .to_string_lossy()
+            .to_string(),
     );
-    env::set_var("CARGO_FEATURE_TEST_FEATURE", "");
-    probe_full()
+
+    hash.insert("CARGO_FEATURE_TEST_FEATURE", "".to_string());
+    env.iter().for_each(|(k, v)| {
+        hash.insert(k, v.to_string());
+    });
+
+    probe_full(EnvVariables::Mock(hash))
 }
 
 #[test]
 fn good() {
-    let (libraries, flags) = toml("toml-good").unwrap();
+    let (libraries, flags) = toml("toml-good", vec![]).unwrap();
     let testlib = libraries.get("testlib").unwrap();
     assert_eq!(testlib.version, "1.2.3");
     let testdata = libraries.get("testdata").unwrap();
@@ -52,7 +66,7 @@ cargo:include=/usr/include/testlib
 }
 
 fn toml_err(path: &str, err_starts_with: &str) {
-    let err = toml(path).unwrap_err();
+    let err = toml(path, vec![]).unwrap_err();
     if !err.description().starts_with(err_starts_with) {
         panic!(
             "Expected error to start with: {:?}\nGot error: {:?}",
@@ -62,8 +76,12 @@ fn toml_err(path: &str, err_starts_with: &str) {
 }
 
 // Assert a PkgConfig error because requested lib version cannot be found
-fn toml_pkg_config_err_version(path: &str, expected_version: &str) {
-    let err = toml(path).unwrap_err();
+fn toml_pkg_config_err_version(
+    path: &str,
+    expected_version: &str,
+    env_vars: Vec<(&'static str, &'static str)>,
+) {
+    let err = toml(path, env_vars).unwrap_err();
     match err.kind() {
         ErrorKind::PkgConfig(e) => match e {
             pkg_config::Error::Failure {
@@ -139,22 +157,22 @@ fn unexpected_key() {
 
 #[test]
 fn override_name() {
-    let (libraries, _) = toml("toml-override-name").unwrap();
+    let (libraries, _) = toml("toml-override-name", vec![]).unwrap();
     let testlib = libraries.get("testlib").unwrap();
     assert_eq!(testlib.version, "2.0.0");
 }
 
 #[test]
 fn feature_versions() {
-    let (libraries, _) = toml("toml-feature-versions").unwrap();
+    let (libraries, _) = toml("toml-feature-versions", vec![]).unwrap();
     let testdata = libraries.get("testdata").unwrap();
     assert_eq!(testdata.version, "4.5.6");
 
     // version 5 is not available
     env::set_var("CARGO_FEATURE_V5", "");
-    toml_pkg_config_err_version("toml-feature-versions", "5");
+    toml_pkg_config_err_version("toml-feature-versions", "5", vec![("CARGO_FEATURE_V5", "")]);
 
     // We check the highest version enabled by features
     env::set_var("CARGO_FEATURE_V6", "");
-    toml_pkg_config_err_version("toml-feature-versions", "6");
+    toml_pkg_config_err_version("toml-feature-versions", "6", vec![("CARGO_FEATURE_V6", "")]);
 }
