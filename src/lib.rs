@@ -12,7 +12,7 @@
 //! gstreamer = { name = "gstreamer-1.0", version = "1.0", feature-versions = { v1_2 = "1.2", v1_4 = "1.4" }}
 //! ```
 
-#![deny(missing_docs, warnings)]
+#![deny(missing_docs)]
 
 #[macro_use]
 extern crate error_chain;
