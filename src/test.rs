@@ -1,26 +1,29 @@
-#[macro_use]
-extern crate lazy_static;
-
 use pkg_config;
 use std::env;
 use std::sync::Mutex;
+
+use super::{probe, ErrorKind, Result};
 
 lazy_static! {
     static ref LOCK: Mutex<()> = Mutex::new(());
 }
 
-fn toml(path: &str) -> metadeps::Result<std::collections::HashMap<String, pkg_config::Library>> {
+fn toml(path: &str) -> Result<std::collections::HashMap<String, pkg_config::Library>> {
     let _l = LOCK.lock();
     env::set_var(
         "PKG_CONFIG_PATH",
-        &env::current_dir().unwrap().join("tests"),
+        &env::current_dir().unwrap().join("src").join("tests"),
     );
     env::set_var(
         "CARGO_MANIFEST_DIR",
-        &env::current_dir().unwrap().join("tests").join(path),
+        &env::current_dir()
+            .unwrap()
+            .join("src")
+            .join("tests")
+            .join(path),
     );
     env::set_var("CARGO_FEATURE_TEST_FEATURE", "");
-    metadeps::probe()
+    probe()
 }
 
 #[test]
@@ -47,7 +50,7 @@ fn toml_err(path: &str, err_starts_with: &str) {
 fn toml_pkg_config_err_version(path: &str, expected_version: &str) {
     let err = toml(path).unwrap_err();
     match err.kind() {
-        metadeps::ErrorKind::PkgConfig(e) => match e {
+        ErrorKind::PkgConfig(e) => match e {
             pkg_config::Error::Failure {
                 command: cmd,
                 output: _,

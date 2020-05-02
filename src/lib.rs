@@ -17,6 +17,13 @@
 #[macro_use]
 extern crate error_chain;
 
+#[cfg(test)]
+#[macro_use]
+extern crate lazy_static;
+
+#[cfg(test)]
+mod test;
+
 use pkg_config::{Config, Library};
 use std::collections::HashMap;
 use std::env;
