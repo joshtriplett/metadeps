@@ -4,7 +4,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use super::{probe_full, BuildFlags, EnvVariables, ErrorKind, Result};
+use super::{probe_full, BuildFlags, EnvVariables, ErrorKind, Library, Result};
 
 lazy_static! {
     static ref LOCK: Mutex<()> = Mutex::new(());
@@ -13,10 +13,7 @@ lazy_static! {
 fn toml(
     path: &str,
     env: Vec<(&'static str, &'static str)>,
-) -> Result<(
-    std::collections::HashMap<String, pkg_config::Library>,
-    BuildFlags,
-)> {
+) -> Result<(std::collections::HashMap<String, Library>, BuildFlags)> {
     {
         // PKG_CONFIG_PATH is read by pkg-config so we need to actually change the env
         let _l = LOCK.lock();

@@ -25,7 +25,7 @@ extern crate lazy_static;
 mod test;
 
 use heck::ShoutySnakeCase;
-use pkg_config::{Config, Library};
+use pkg_config::Config;
 use std::collections::HashMap;
 use std::env;
 use std::fmt;
@@ -37,6 +37,53 @@ use version_compare::VersionCompare;
 error_chain! {
     foreign_links {
         PkgConfig(pkg_config::Error) #[doc="pkg-config error"];
+    }
+}
+
+#[derive(Debug)]
+/// A system dependency
+pub struct Library {
+    /// libraries the linker should link on
+    pub libs: Vec<String>,
+    /// directories where the compiler should look for libraries
+    pub link_paths: Vec<PathBuf>,
+    /// frameworks the linker should link on
+    pub frameworks: Vec<String>,
+    /// directories where the compiler should look for frameworks
+    pub framework_paths: Vec<PathBuf>,
+    /// directories where the compiler should look for header files
+    pub include_paths: Vec<PathBuf>,
+    /// macros that should be defined by the compiler
+    pub defines: HashMap<String, Option<String>>,
+    /// library version
+    pub version: String,
+}
+
+impl Default for Library {
+    fn default() -> Self {
+        Self {
+            libs: Vec::new(),
+            link_paths: Vec::new(),
+            include_paths: Vec::new(),
+            frameworks: Vec::new(),
+            framework_paths: Vec::new(),
+            defines: HashMap::new(),
+            version: String::new(),
+        }
+    }
+}
+
+impl Library {
+    fn from_pkg_config(l: pkg_config::Library) -> Self {
+        Self {
+            libs: l.libs,
+            link_paths: l.link_paths,
+            include_paths: l.include_paths,
+            frameworks: l.frameworks,
+            framework_paths: l.framework_paths,
+            defines: l.defines,
+            version: l.version,
+        }
     }
 }
 
@@ -168,7 +215,7 @@ fn probe_pkg_config(env_vars: &EnvVariables) -> Result<HashMap<String, Library>>
             .print_system_libs(false)
             .cargo_metadata(false)
             .probe(lib_name)?;
-        libraries.insert(name.clone(), library);
+        libraries.insert(name.clone(), Library::from_pkg_config(library));
     }
     Ok(libraries)
 }
