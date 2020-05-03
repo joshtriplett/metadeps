@@ -1,6 +1,7 @@
 use pkg_config;
 use std::collections::HashMap;
 use std::env;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use super::{probe_full, BuildFlags, EnvVariables, ErrorKind, Result};
@@ -175,4 +176,137 @@ fn feature_versions() {
     // We check the highest version enabled by features
     env::set_var("CARGO_FEATURE_V6", "");
     toml_pkg_config_err_version("toml-feature-versions", "6", vec![("CARGO_FEATURE_V6", "")]);
+}
+
+#[test]
+fn override_search_native() {
+    let (libraries, flags) = toml(
+        "toml-good",
+        vec![("METADEPS_TESTLIB_SEARCH_NATIVE", "/custom/path:/other/path")],
+    )
+    .unwrap();
+    let testlib = libraries.get("testlib").unwrap();
+    assert_eq!(
+        testlib.link_paths,
+        vec![Path::new("/custom/path"), Path::new("/other/path")]
+    );
+
+    assert_eq!(
+        flags.to_string(),
+        r#"cargo:rustc-link-search=native=/custom/path
+cargo:rustc-link-search=native=/other/path
+cargo:rustc-link-search=framework=/usr/lib/x86_64-linux-gnu
+cargo:rustc-link-lib=test
+cargo:rustc-link-lib=framework=someframework
+cargo:include=/usr/include/testlib
+"#
+    );
+}
+
+#[test]
+fn override_search_framework() {
+    let (libraries, flags) = toml(
+        "toml-good",
+        vec![("METADEPS_TESTLIB_SEARCH_FRAMEWORK", "/custom/path")],
+    )
+    .unwrap();
+    let testlib = libraries.get("testlib").unwrap();
+    assert_eq!(testlib.framework_paths, vec![Path::new("/custom/path")]);
+
+    assert_eq!(
+        flags.to_string(),
+        r#"cargo:rustc-link-search=native=/usr/lib/x86_64-linux-gnu
+cargo:rustc-link-search=framework=/custom/path
+cargo:rustc-link-lib=test
+cargo:rustc-link-lib=framework=someframework
+cargo:include=/usr/include/testlib
+"#
+    );
+}
+
+#[test]
+fn override_lib() {
+    let (libraries, flags) = toml(
+        "toml-good",
+        vec![("METADEPS_TESTLIB_LIB", "overrided-test other-test")],
+    )
+    .unwrap();
+    let testlib = libraries.get("testlib").unwrap();
+    assert_eq!(testlib.libs, vec!["overrided-test", "other-test"]);
+
+    assert_eq!(
+        flags.to_string(),
+        r#"cargo:rustc-link-search=native=/usr/lib/x86_64-linux-gnu
+cargo:rustc-link-search=framework=/usr/lib/x86_64-linux-gnu
+cargo:rustc-link-lib=overrided-test
+cargo:rustc-link-lib=other-test
+cargo:rustc-link-lib=framework=someframework
+cargo:include=/usr/include/testlib
+"#
+    );
+}
+
+#[test]
+fn override_framework() {
+    let (libraries, flags) = toml(
+        "toml-good",
+        vec![("METADEPS_TESTLIB_LIB_FRAMEWORK", "overrided-framework")],
+    )
+    .unwrap();
+    let testlib = libraries.get("testlib").unwrap();
+    assert_eq!(testlib.frameworks, vec!["overrided-framework"]);
+
+    assert_eq!(
+        flags.to_string(),
+        r#"cargo:rustc-link-search=native=/usr/lib/x86_64-linux-gnu
+cargo:rustc-link-search=framework=/usr/lib/x86_64-linux-gnu
+cargo:rustc-link-lib=test
+cargo:rustc-link-lib=framework=overrided-framework
+cargo:include=/usr/include/testlib
+"#
+    );
+}
+
+#[test]
+fn override_include() {
+    let (libraries, flags) = toml(
+        "toml-good",
+        vec![("METADEPS_TESTLIB_INCLUDE", "/other/include")],
+    )
+    .unwrap();
+    let testlib = libraries.get("testlib").unwrap();
+    assert_eq!(testlib.include_paths, vec![Path::new("/other/include")]);
+
+    assert_eq!(
+        flags.to_string(),
+        r#"cargo:rustc-link-search=native=/usr/lib/x86_64-linux-gnu
+cargo:rustc-link-search=framework=/usr/lib/x86_64-linux-gnu
+cargo:rustc-link-lib=test
+cargo:rustc-link-lib=framework=someframework
+cargo:include=/other/include
+"#
+    );
+}
+
+#[test]
+fn override_unset() {
+    let (libraries, flags) = toml(
+        "toml-good",
+        vec![
+            ("METADEPS_TESTLIB_SEARCH_NATIVE", ""),
+            ("METADEPS_TESTLIB_SEARCH_FRAMEWORK", ""),
+            ("METADEPS_TESTLIB_LIB", ""),
+            ("METADEPS_TESTLIB_LIB_FRAMEWORK", ""),
+            ("METADEPS_TESTLIB_INCLUDE", ""),
+        ],
+    )
+    .unwrap();
+    let testlib = libraries.get("testlib").unwrap();
+    assert_eq!(testlib.link_paths, Vec::<PathBuf>::new());
+    assert_eq!(testlib.framework_paths, Vec::<PathBuf>::new());
+    assert_eq!(testlib.libs, Vec::<String>::new());
+    assert_eq!(testlib.frameworks, Vec::<String>::new());
+    assert_eq!(testlib.include_paths, Vec::<PathBuf>::new());
+
+    assert_eq!(flags.to_string(), "");
 }

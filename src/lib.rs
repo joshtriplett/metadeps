@@ -24,13 +24,14 @@ extern crate lazy_static;
 #[cfg(test)]
 mod test;
 
+use heck::ShoutySnakeCase;
 use pkg_config::{Config, Library};
 use std::collections::HashMap;
 use std::env;
 use std::fmt;
 use std::fs;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use version_compare::VersionCompare;
 
 error_chain! {
@@ -248,8 +249,50 @@ fn gen_flags(libraries: &HashMap<String, Library>) -> BuildFlags {
     flags
 }
 
+fn flag_override_var(lib: &str, flag: &str) -> String {
+    format!("METADEPS_{}_{}", lib.to_shouty_snake_case(), flag)
+}
+
+fn split_paths(value: &str) -> Vec<PathBuf> {
+    if !value.is_empty() {
+        let paths = env::split_paths(&value);
+        paths.map(|p| Path::new(&p).into()).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+fn split_string(value: &str) -> Vec<String> {
+    if !value.is_empty() {
+        value.split(' ').map(|s| s.to_string()).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+fn override_from_flags(env_vars: &EnvVariables, libraries: &mut HashMap<String, Library>) {
+    for (name, lib) in libraries.iter_mut() {
+        if let Some(value) = env_vars.get(&flag_override_var(name, "SEARCH_NATIVE")) {
+            lib.link_paths = split_paths(&value);
+        }
+        if let Some(value) = env_vars.get(&flag_override_var(name, "SEARCH_FRAMEWORK")) {
+            lib.framework_paths = split_paths(&value);
+        }
+        if let Some(value) = env_vars.get(&flag_override_var(name, "LIB")) {
+            lib.libs = split_string(&value);
+        }
+        if let Some(value) = env_vars.get(&flag_override_var(name, "LIB_FRAMEWORK")) {
+            lib.frameworks = split_string(&value);
+        }
+        if let Some(value) = env_vars.get(&flag_override_var(name, "INCLUDE")) {
+            lib.include_paths = split_paths(&value);
+        }
+    }
+}
+
 fn probe_full(env: EnvVariables) -> Result<(HashMap<String, Library>, BuildFlags)> {
-    let libraries = probe_pkg_config(&env)?;
+    let mut libraries = probe_pkg_config(&env)?;
+    override_from_flags(&env, &mut libraries);
     let flags = gen_flags(&libraries);
 
     Ok((libraries, flags))

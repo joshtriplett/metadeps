@@ -13,6 +13,7 @@ error-chain = { version = "0.12", default-features = false }
 pkg-config = "0.3.8"
 toml = { version = "0.5", default-features = false }
 version-compare = "0.0.10"
+heck = "0.3"
 
 [dev-dependencies]
 lazy_static = "1"
