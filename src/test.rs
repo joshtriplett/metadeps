@@ -307,3 +307,23 @@ fn override_unset() {
 
     assert_eq!(flags.to_string(), "");
 }
+
+#[test]
+fn override_no_pkg_config() {
+    let (libraries, flags) = toml(
+        "toml-good",
+        vec![
+            ("METADEPS_TESTLIB_NO_PKG_CONFIG", "1"),
+            ("METADEPS_TESTLIB_LIB", "custom-lib"),
+        ],
+    )
+    .unwrap();
+    let testlib = libraries.get("testlib").unwrap();
+    assert_eq!(testlib.link_paths, Vec::<PathBuf>::new());
+    assert_eq!(testlib.framework_paths, Vec::<PathBuf>::new());
+    assert_eq!(testlib.libs, vec!["custom-lib"]);
+    assert_eq!(testlib.frameworks, Vec::<String>::new());
+    assert_eq!(testlib.include_paths, Vec::<PathBuf>::new());
+
+    assert_eq!(flags.to_string(), "cargo:rustc-link-lib=custom-lib\n");
+}

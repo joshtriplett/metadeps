@@ -210,12 +210,19 @@ fn probe_pkg_config(env_vars: &EnvVariables) -> Result<HashMap<String, Library>>
             }
             _ => bail!("{}.{} not a string or table", key, name),
         };
-        let library = Config::new()
-            .atleast_version(&version)
-            .print_system_libs(false)
-            .cargo_metadata(false)
-            .probe(lib_name)?;
-        libraries.insert(name.clone(), Library::from_pkg_config(library));
+        let library = if env_vars.contains(&flag_override_var(name, "NO_PKG_CONFIG")) {
+            Library::default()
+        } else {
+            Library::from_pkg_config(
+                Config::new()
+                    .atleast_version(&version)
+                    .print_system_libs(false)
+                    .cargo_metadata(false)
+                    .probe(lib_name)?,
+            )
+        };
+
+        libraries.insert(name.clone(), library);
     }
     Ok(libraries)
 }
