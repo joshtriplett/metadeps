@@ -327,3 +327,12 @@ fn override_no_pkg_config() {
 
     assert_eq!(flags.to_string(), "cargo:rustc-link-lib=custom-lib\n");
 }
+
+#[test]
+fn override_no_pkg_config_error() {
+    let err = toml("toml-good", vec![("METADEPS_TESTLIB_NO_PKG_CONFIG", "1")]).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "You should define at least one lib using METADEPS_TESTLIB_LIB or METADEPS_TESTLIB_LIB_FRAMEWORK"
+    );
+}

@@ -38,6 +38,16 @@ error_chain! {
     foreign_links {
         PkgConfig(pkg_config::Error) #[doc="pkg-config error"];
     }
+    errors {
+        /// Raised when dependency defined manually using `METADEPS_$NAME_NO_PKG_CONFIG`
+        /// did not define at least one lib using `METADEPS_$NAME_LIB` or
+        /// `METADEPS_$NAME_LIB_FRAMEWORK`
+        MissingLib(name: String) {
+            display("You should define at least one lib using {} or {}",
+                    flag_override_var(name, "LIB"),
+                    flag_override_var(name, "LIB_FRAMEWORK"))
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -282,12 +292,16 @@ impl fmt::Display for BuildFlags {
     }
 }
 
-fn gen_flags(libraries: &HashMap<String, Library>) -> BuildFlags {
+fn gen_flags(libraries: &HashMap<String, Library>) -> Result<BuildFlags> {
     let mut flags = BuildFlags::new();
     let mut include_paths = Vec::new();
 
-    for (_name, lib) in libraries.iter() {
+    for (name, lib) in libraries.iter() {
         include_paths.extend(lib.include_paths.clone());
+
+        if lib.source == Source::EnvVariables && lib.libs.is_empty() && lib.frameworks.is_empty() {
+            bail!(ErrorKind::MissingLib(name.clone()));
+        }
 
         lib.link_paths
             .iter()
@@ -311,7 +325,7 @@ fn gen_flags(libraries: &HashMap<String, Library>) -> BuildFlags {
         }
     }
 
-    flags
+    Ok(flags)
 }
 
 fn flag_override_var(lib: &str, flag: &str) -> String {
@@ -358,7 +372,7 @@ fn override_from_flags(env_vars: &EnvVariables, libraries: &mut HashMap<String, 
 fn probe_full(env: EnvVariables) -> Result<(HashMap<String, Library>, BuildFlags)> {
     let mut libraries = probe_pkg_config(&env)?;
     override_from_flags(&env, &mut libraries);
-    let flags = gen_flags(&libraries);
+    let flags = gen_flags(&libraries)?;
 
     Ok((libraries, flags))
 }
