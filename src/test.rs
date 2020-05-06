@@ -10,10 +10,7 @@ lazy_static! {
     static ref LOCK: Mutex<()> = Mutex::new(());
 }
 
-fn toml(
-    path: &str,
-    env: Vec<(&'static str, &'static str)>,
-) -> Result<(std::collections::HashMap<String, Library>, BuildFlags)> {
+fn create_config(path: &str, env: Vec<(&'static str, &'static str)>) -> Config {
     {
         // PKG_CONFIG_PATH is read by pkg-config so we need to actually change the env
         let _l = LOCK.lock();
@@ -40,7 +37,14 @@ fn toml(
         hash.insert(k, v.to_string());
     });
 
-    Config::new_with_env(EnvVariables::Mock(hash)).probe_full()
+    Config::new_with_env(EnvVariables::Mock(hash))
+}
+
+fn toml(
+    path: &str,
+    env: Vec<(&'static str, &'static str)>,
+) -> Result<(std::collections::HashMap<String, Library>, BuildFlags)> {
+    create_config(path, env).probe_full()
 }
 
 #[test]
