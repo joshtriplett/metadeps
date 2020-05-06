@@ -65,7 +65,7 @@ cargo:include=/usr/include/testlib
 
 fn toml_err(path: &str, err_starts_with: &str) {
     let err = toml(path, vec![]).unwrap_err();
-    if !err.description().starts_with(err_starts_with) {
+    if !err.to_string().starts_with(err_starts_with) {
         panic!(
             "Expected error to start with: {:?}\nGot error: {:?}",
             err_starts_with, err

@@ -39,6 +39,10 @@ error_chain! {
         PkgConfig(pkg_config::Error) #[doc="pkg-config error"];
     }
     errors {
+        /// Raised when an error is detected in the metadata defined in `Cargo.toml`
+        InvalidMetadata(details: String) {
+            display("{}", details)
+        }
         /// Raised when dependency defined manually using `METADEPS_$NAME_NO_PKG_CONFIG`
         /// did not define at least one lib using `METADEPS_$NAME_LIB` or
         /// `METADEPS_$NAME_LIB_FRAMEWORK`
@@ -186,21 +190,21 @@ fn probe_pkg_config(env_vars: &EnvVariables) -> Result<HashMap<String, Library>>
                                             enabled_feature_versions.push(feat_vers);
                                         }
                                     }
-                                    _ => bail!(
+                                    _ => bail!(ErrorKind::InvalidMetadata(format!(
                                         "Unexpected feature-version key: {} type {}",
                                         k,
                                         v.type_str()
-                                    ),
+                                    ))),
                                 }
                             }
                         }
-                        _ => bail!(
+                        _ => bail!(ErrorKind::InvalidMetadata(format!(
                             "Unexpected key {}.{}.{} type {}",
                             key,
                             name,
                             tname,
                             tvalue.type_str()
-                        ),
+                        ))),
                     }
                 }
                 if let Some(feature) = feature {
@@ -229,7 +233,10 @@ fn probe_pkg_config(env_vars: &EnvVariables) -> Result<HashMap<String, Library>>
                     version.ok_or(format!("No version in {}.{}", key, name))?,
                 )
             }
-            _ => bail!("{}.{} not a string or table", key, name),
+            _ => bail!(ErrorKind::InvalidMetadata(format!(
+                "{}.{} not a string or table",
+                key, name
+            ))),
         };
         let library = if env_vars.contains(&flag_override_var(name, "NO_PKG_CONFIG")) {
             Library::from_env_variables()
