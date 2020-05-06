@@ -40,9 +40,20 @@ error_chain! {
     }
 }
 
+#[derive(Debug, PartialEq)]
+/// From where the library settings have been retrieved
+pub enum Source {
+    /// Settings have been retrieved from `pkg-config`
+    PkgConfig,
+    /// Settings have been defined using user defined environnement variables
+    EnvVariables,
+}
+
 #[derive(Debug)]
 /// A system dependency
 pub struct Library {
+    /// From where the library settings have been retrieved
+    pub source: Source,
     /// libraries the linker should link on
     pub libs: Vec<String>,
     /// directories where the compiler should look for libraries
@@ -59,23 +70,10 @@ pub struct Library {
     pub version: String,
 }
 
-impl Default for Library {
-    fn default() -> Self {
-        Self {
-            libs: Vec::new(),
-            link_paths: Vec::new(),
-            include_paths: Vec::new(),
-            frameworks: Vec::new(),
-            framework_paths: Vec::new(),
-            defines: HashMap::new(),
-            version: String::new(),
-        }
-    }
-}
-
 impl Library {
     fn from_pkg_config(l: pkg_config::Library) -> Self {
         Self {
+            source: Source::PkgConfig,
             libs: l.libs,
             link_paths: l.link_paths,
             include_paths: l.include_paths,
@@ -83,6 +81,19 @@ impl Library {
             framework_paths: l.framework_paths,
             defines: l.defines,
             version: l.version,
+        }
+    }
+
+    fn from_env_variables() -> Self {
+        Self {
+            source: Source::EnvVariables,
+            libs: Vec::new(),
+            link_paths: Vec::new(),
+            include_paths: Vec::new(),
+            frameworks: Vec::new(),
+            framework_paths: Vec::new(),
+            defines: HashMap::new(),
+            version: String::new(),
         }
     }
 }
@@ -211,7 +222,7 @@ fn probe_pkg_config(env_vars: &EnvVariables) -> Result<HashMap<String, Library>>
             _ => bail!("{}.{} not a string or table", key, name),
         };
         let library = if env_vars.contains(&flag_override_var(name, "NO_PKG_CONFIG")) {
-            Library::default()
+            Library::from_env_variables()
         } else {
             Library::from_pkg_config(
                 Config::new()
