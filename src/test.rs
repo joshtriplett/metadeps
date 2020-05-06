@@ -1,10 +1,14 @@
 use pkg_config;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Mutex;
 
-use super::{BuildFlags, Config, EnvVariables, ErrorKind, Library, Result};
+use super::{
+    BuildFlags, BuildInternalClosureError, Config, EnvVariables, ErrorKind, Library, Result,
+};
 
 lazy_static! {
     static ref LOCK: Mutex<()> = Mutex::new(());
@@ -339,4 +343,186 @@ fn override_no_pkg_config_error() {
         err.to_string(),
         "You should define at least one lib using METADEPS_TESTLIB_LIB or METADEPS_TESTLIB_LIB_FRAMEWORK"
     );
+}
+
+#[test]
+fn build_internal_always() {
+    let called = Rc::new(Cell::new(false));
+    let called_clone = called.clone();
+    let config = create_config(
+        "toml-good",
+        vec![("METADEPS_TESTLIB_BUILD_INTERNAL", "always")],
+    )
+    .add_build_internal("testlib", move |version| {
+        called_clone.replace(true);
+        assert_eq!(version, "1");
+        let lib = pkg_config::Config::new()
+            .print_system_libs(false)
+            .cargo_metadata(false)
+            .probe("testlib")
+            .unwrap();
+        Ok(Library::from_pkg_config(lib))
+    });
+
+    let (libraries, _flags) = config.probe_full().unwrap();
+
+    assert_eq!(called.get(), true);
+    assert!(libraries.get("testlib").is_some());
+}
+
+#[test]
+fn build_internal_auto_not_called() {
+    // No need to build the lib as the existing version is new enough
+    let called = Rc::new(Cell::new(false));
+    let called_clone = called.clone();
+    let config = create_config(
+        "toml-good",
+        vec![("METADEPS_TESTLIB_BUILD_INTERNAL", "auto")],
+    )
+    .add_build_internal("testlib", move |_version| {
+        called_clone.replace(true);
+        let lib = pkg_config::Config::new()
+            .print_system_libs(false)
+            .cargo_metadata(false)
+            .probe("testlib")
+            .unwrap();
+        Ok(Library::from_pkg_config(lib))
+    });
+
+    let (libraries, _flags) = config.probe_full().unwrap();
+
+    assert_eq!(called.get(), false);
+    assert!(libraries.get("testlib").is_some());
+}
+
+#[test]
+fn build_internal_auto_called() {
+    // Version 5 is not available so we should try building
+    let called = Rc::new(Cell::new(false));
+    let called_clone = called.clone();
+    let config = create_config(
+        "toml-feature-versions",
+        vec![
+            ("METADEPS_TESTDATA_BUILD_INTERNAL", "auto"),
+            ("CARGO_FEATURE_V5", ""),
+        ],
+    )
+    .add_build_internal("testdata", move |version| {
+        called_clone.replace(true);
+        assert_eq!(version, "5");
+        let mut lib = pkg_config::Config::new()
+            .print_system_libs(false)
+            .cargo_metadata(false)
+            .probe("testdata")
+            .unwrap();
+        lib.version = "5.0".to_string();
+        Ok(Library::from_pkg_config(lib))
+    });
+
+    let (libraries, _flags) = config.probe_full().unwrap();
+
+    assert_eq!(called.get(), true);
+    assert!(libraries.get("testdata").is_some());
+}
+
+#[test]
+fn build_internal_auto_never() {
+    // Version 5 is not available but we forbid to build the lib
+    let called = Rc::new(Cell::new(false));
+    let called_clone = called.clone();
+    let config = create_config(
+        "toml-feature-versions",
+        vec![
+            ("METADEPS_TESTDATA_BUILD_INTERNAL", "never"),
+            ("CARGO_FEATURE_V5", ""),
+        ],
+    )
+    .add_build_internal("testdata", move |version| {
+        called_clone.replace(true);
+        assert_eq!(version, "5");
+        let lib = pkg_config::Config::new()
+            .print_system_libs(false)
+            .cargo_metadata(false)
+            .probe("testdata")
+            .unwrap();
+        Ok(Library::from_pkg_config(lib))
+    });
+
+    let err = config.probe_full().unwrap_err();
+    assert!(matches!(err.into(), ErrorKind::PkgConfig(..)));
+
+    assert_eq!(called.get(), false);
+}
+
+#[test]
+fn build_internal_always_no_closure() {
+    let config = create_config(
+        "toml-good",
+        vec![("METADEPS_TESTLIB_BUILD_INTERNAL", "always")],
+    );
+
+    let err = config.probe_full().unwrap_err();
+    assert!(matches!(err.into(), ErrorKind::BuildInternalNoClosure(..)));
+}
+
+#[test]
+fn build_internal_invalid() {
+    let config = create_config(
+        "toml-good",
+        vec![("METADEPS_TESTLIB_BUILD_INTERNAL", "badger")],
+    );
+
+    let err = config.probe_full().unwrap_err();
+    assert!(matches!(err.into(), ErrorKind::BuildInternalInvalid(..)));
+}
+
+#[test]
+fn build_internal_wrong_version() {
+    // Require version 5
+    let called = Rc::new(Cell::new(false));
+    let called_clone = called.clone();
+    let config = create_config(
+        "toml-feature-versions",
+        vec![
+            ("METADEPS_TESTDATA_BUILD_INTERNAL", "auto"),
+            ("CARGO_FEATURE_V5", ""),
+        ],
+    )
+    .add_build_internal("testdata", move |_version| {
+        called_clone.replace(true);
+        let lib = pkg_config::Config::new()
+            .print_system_libs(false)
+            .cargo_metadata(false)
+            .probe("testdata")
+            .unwrap();
+        Ok(Library::from_pkg_config(lib))
+    });
+
+    let err = config.probe_full().unwrap_err();
+    assert!(matches!(
+        err.into(),
+        ErrorKind::BuildInternalWrongVersion(..)
+    ));
+    assert_eq!(called.get(), true);
+}
+
+#[test]
+fn build_internal_fail() {
+    let called = Rc::new(Cell::new(false));
+    let called_clone = called.clone();
+    let config = create_config(
+        "toml-good",
+        vec![("METADEPS_TESTLIB_BUILD_INTERNAL", "always")],
+    )
+    .add_build_internal("testlib", move |_version| {
+        called_clone.replace(true);
+        Err(BuildInternalClosureError::failed("Something went wrong"))
+    });
+
+    let err = config.probe_full().unwrap_err();
+    assert!(matches!(
+        err.into(),
+        ErrorKind::BuildInternalClosureError(..)
+    ));
+    assert_eq!(called.get(), true);
 }

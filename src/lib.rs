@@ -31,11 +31,16 @@ use std::fmt;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use strum_macros::EnumString;
+use thiserror::Error;
 use version_compare::VersionCompare;
 
+// TODO: port to this-error
 error_chain! {
     foreign_links {
         PkgConfig(pkg_config::Error) #[doc="pkg-config error"];
+        BuildInternalClosureError(BuildInternalClosureError) #[doc="build internal closure failure"];
     }
     errors {
         /// Raised when an error is detected in the metadata defined in `Cargo.toml`
@@ -50,13 +55,55 @@ error_chain! {
                     flag_override_var(name, "LIB"),
                     flag_override_var(name, "LIB_FRAMEWORK"))
         }
+        /// An environnement variable in the form of `METADEPS_$NAME_BUILD_INTERNAL`
+        /// contained an invalid value (allowed: `auto`, `always`, `never`)
+        BuildInternalInvalid(details: String) {
+            display("{}", details)
+        }
+        /// Metadeps has been asked to internally build a lib, through
+        /// `METADEPS_$NAME_BUILD_INTERNAL=always' or `METADEPS_$NAME_BUILD_INTERNAL=auto',
+        /// but not closure has been defined using `Config::add_build_internal` to build
+        /// this lib
+        BuildInternalNoClosure(lib: String, version: String) {
+            display("Missing build internal closure for {} (version {})", lib, version)
+        }
+        /// The library which has been build internally does not match the
+        /// required version defined in `Cargo.toml`
+        BuildInternalWrongVersion(lib: String, version: String, expected: String) {
+            display("Internally built {} {} but minimum required version is {}", lib, version, expected)
+        }
     }
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
+/// Error used in return value of `Config::add_build_internal` closures
+pub enum BuildInternalClosureError {
+    /// `pkg-config` error
+    #[error(transparent)]
+    PkgConfig(#[from] pkg_config::Error),
+    /// General failure
+    #[error("{0}")]
+    Failed(String),
+}
+
+impl BuildInternalClosureError {
+    /// Create a new `BuildInternalClosureError::Failed` representing a general
+    /// failure.
+    ///
+    /// # Arguments
+    ///
+    /// * `details`: human-readable details about the failure
+    pub fn failed(details: &str) -> Self {
+        Self::Failed(details.to_string())
+    }
+}
+
+type FnBuildInternal = dyn FnOnce(&str) -> std::result::Result<Library, BuildInternalClosureError>;
+
 /// Structure used to configure `metadata` before starting to probe for dependencies
 pub struct Config {
     env: EnvVariables,
+    build_internals: HashMap<String, Box<FnBuildInternal>>,
 }
 
 impl Default for Config {
@@ -72,7 +119,10 @@ impl Config {
     }
 
     fn new_with_env(env: EnvVariables) -> Self {
-        Self { env }
+        Self {
+            env,
+            build_internals: HashMap::new(),
+        }
     }
 
     /// Probe all libraries configured in the Cargo.toml
@@ -86,7 +136,31 @@ impl Config {
         Ok(libraries)
     }
 
-    fn probe_full(self) -> Result<(HashMap<String, Library>, BuildFlags)> {
+    /// Add hook so metadeps can internally build library `name` if requested by user.
+    ///
+    /// It will only be triggered if the environnement variable
+    /// `METADEPS_$NAME_BUILD_INTERNAL` is defined with either `always` or
+    /// `auto` as value. In the latter case, `func` is called only if the requested
+    /// version of the library was not found on the system.
+    ///
+    /// # Arguments
+    /// * `name`: the name of the library, as defined in `Cargo.toml`
+    /// * `func`: closure called when internally building the library.
+    /// It receives as argument the minimum library version required.
+    pub fn add_build_internal<F>(self, name: &str, func: F) -> Self
+    where
+        F: 'static + FnOnce(&str) -> std::result::Result<Library, BuildInternalClosureError>,
+    {
+        let mut build_internals = self.build_internals;
+        build_internals.insert(name.to_string(), Box::new(func));
+
+        Self {
+            env: self.env,
+            build_internals,
+        }
+    }
+
+    fn probe_full(mut self) -> Result<(HashMap<String, Library>, BuildFlags)> {
         let mut libraries = self.probe_pkg_config()?;
         self.override_from_flags(&mut libraries);
         let flags = self.gen_flags(&libraries)?;
@@ -94,7 +168,7 @@ impl Config {
         Ok((libraries, flags))
     }
 
-    fn probe_pkg_config(&self) -> Result<HashMap<String, Library>> {
+    fn probe_pkg_config(&mut self) -> Result<HashMap<String, Library>> {
         let dir = self
             .env
             .get("CARGO_MANIFEST_DIR")
@@ -195,21 +269,70 @@ impl Config {
                     key, name
                 ))),
             };
+
+            let build_internal = self.get_build_internal_status(name)?;
+
             let library = if self.env.contains(&flag_override_var(name, "NO_PKG_CONFIG")) {
                 Library::from_env_variables()
+            } else if build_internal == BuildInternal::Always {
+                self.call_build_internal(name, version)?
             } else {
-                Library::from_pkg_config(
-                    pkg_config::Config::new()
-                        .atleast_version(&version)
-                        .print_system_libs(false)
-                        .cargo_metadata(false)
-                        .probe(lib_name)?,
-                )
+                match pkg_config::Config::new()
+                    .atleast_version(&version)
+                    .print_system_libs(false)
+                    .cargo_metadata(false)
+                    .probe(lib_name)
+                {
+                    Ok(lib) => Library::from_pkg_config(lib),
+                    Err(e) => {
+                        if build_internal == BuildInternal::Auto {
+                            // Try building the lib internally as a fallback
+                            self.call_build_internal(name, version)?
+                        } else {
+                            return Err(e.into());
+                        }
+                    }
+                }
             };
 
             libraries.insert(name.clone(), library);
         }
         Ok(libraries)
+    }
+
+    fn get_build_internal_status(&self, name: &str) -> Result<BuildInternal> {
+        let var = flag_override_var(name, "BUILD_INTERNAL");
+        let b = match self.env.get(&var).as_deref() {
+            Some(s) => BuildInternal::from_str(s).map_err(|_| {
+                ErrorKind::BuildInternalInvalid(format!(
+                    "Invalid value in {}: {} (allowed: 'auto', 'always', 'never')",
+                    var, s
+                ))
+            })?,
+            None => BuildInternal::default(),
+        };
+
+        Ok(b)
+    }
+
+    fn call_build_internal(&mut self, name: &str, version: &str) -> Result<Library> {
+        let lib = match self.build_internals.remove(name) {
+            Some(f) => f(version)?,
+            None => bail!(ErrorKind::BuildInternalNoClosure(
+                name.into(),
+                version.into()
+            )),
+        };
+
+        // Check that the lib built internally matches the required version
+        match VersionCompare::compare(&lib.version, version) {
+            Ok(version_compare::CompOp::Lt) => bail!(ErrorKind::BuildInternalWrongVersion(
+                name.into(),
+                lib.version.clone(),
+                version.into()
+            )),
+            _ => Ok(lib),
+        }
     }
 
     fn override_from_flags(&self, libraries: &mut HashMap<String, Library>) {
@@ -333,6 +456,60 @@ impl Library {
             version: String::new(),
         }
     }
+
+    /// Create a `Library` by probing `pkg-config` on an internal directory.
+    /// This helper is meant to be used by `Config::add_build_internal` closures
+    /// after having built the lib to return the library information to metadata.
+    ///
+    /// # Arguments
+    ///
+    /// * `pkg_config_dir`: the directory where the library `.pc` file is located
+    /// * `lib`: the name of the library to look for
+    /// * `version`: the minimum version of `lib` required
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut config = metadeps::Config::new();
+    /// config.add_build_internal("mylib", |version| {
+    ///   // Actually build the library here
+    ///   metadeps::Library::from_internal_pkg_config("build-dir",
+    ///       "mylib", version)
+    /// });
+    /// ```
+    pub fn from_internal_pkg_config<P>(
+        pkg_config_dir: P,
+        lib: &str,
+        version: &str,
+    ) -> std::result::Result<Self, BuildInternalClosureError>
+    where
+        P: AsRef<Path>,
+    {
+        // save current PKG_CONFIG_PATH so we can restore it
+        let old = env::var("PKG_CONFIG_PATH");
+
+        match old {
+            Ok(ref s) => {
+                let paths = [s, &pkg_config_dir.as_ref().to_string_lossy().to_string()];
+                let paths = env::join_paths(paths.iter()).unwrap();
+                env::set_var("PKG_CONFIG_PATH", paths)
+            }
+            Err(_) => env::set_var("PKG_CONFIG_PATH", pkg_config_dir.as_ref()),
+        }
+
+        let lib = pkg_config::Config::new()
+            .atleast_version(&version)
+            .print_system_libs(false)
+            .cargo_metadata(false)
+            .probe(lib);
+
+        env::set_var("PKG_CONFIG_PATH", &old.unwrap_or_else(|_| "".into()));
+
+        match lib {
+            Ok(lib) => Ok(Self::from_pkg_config(lib)),
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -418,5 +595,19 @@ fn split_string(value: &str) -> Vec<String> {
         value.split(' ').map(|s| s.to_string()).collect()
     } else {
         Vec::new()
+    }
+}
+
+#[derive(Debug, PartialEq, EnumString)]
+#[strum(serialize_all = "snake_case")]
+enum BuildInternal {
+    Auto,
+    Always,
+    Never,
+}
+
+impl Default for BuildInternal {
+    fn default() -> Self {
+        BuildInternal::Never
     }
 }
