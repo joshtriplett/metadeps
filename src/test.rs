@@ -4,7 +4,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use super::{probe_full, BuildFlags, EnvVariables, ErrorKind, Library, Result};
+use super::{BuildFlags, Config, EnvVariables, ErrorKind, Library, Result};
 
 lazy_static! {
     static ref LOCK: Mutex<()> = Mutex::new(());
@@ -40,7 +40,7 @@ fn toml(
         hash.insert(k, v.to_string());
     });
 
-    probe_full(EnvVariables::Mock(hash))
+    Config::new_with_env(EnvVariables::Mock(hash)).probe_full()
 }
 
 #[test]

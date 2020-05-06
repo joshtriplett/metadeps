@@ -25,7 +25,6 @@ extern crate lazy_static;
 mod test;
 
 use heck::ShoutySnakeCase;
-use pkg_config::Config;
 use std::collections::HashMap;
 use std::env;
 use std::fmt;
@@ -51,6 +50,230 @@ error_chain! {
                     flag_override_var(name, "LIB"),
                     flag_override_var(name, "LIB_FRAMEWORK"))
         }
+    }
+}
+
+#[derive(Debug)]
+/// Structure used to configure `metadata` before starting to probe for dependencies
+pub struct Config {
+    env: EnvVariables,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new_with_env(EnvVariables::Environnement)
+    }
+}
+
+impl Config {
+    /// Create a new set of configuration
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn new_with_env(env: EnvVariables) -> Self {
+        Self { env }
+    }
+
+    /// Probe all libraries configured in the Cargo.toml
+    /// `[package.metadata.pkg-config]` section.
+    pub fn probe(self) -> Result<HashMap<String, Library>> {
+        let (libraries, flags) = self.probe_full()?;
+
+        // Output cargo flags
+        println!("{}", flags);
+
+        Ok(libraries)
+    }
+
+    fn probe_full(self) -> Result<(HashMap<String, Library>, BuildFlags)> {
+        let mut libraries = self.probe_pkg_config()?;
+        self.override_from_flags(&mut libraries);
+        let flags = self.gen_flags(&libraries)?;
+
+        Ok((libraries, flags))
+    }
+
+    fn probe_pkg_config(&self) -> Result<HashMap<String, Library>> {
+        let dir = self
+            .env
+            .get("CARGO_MANIFEST_DIR")
+            .ok_or("$CARGO_MANIFEST_DIR not set")?;
+        let mut path = PathBuf::from(dir);
+        path.push("Cargo.toml");
+        let mut manifest =
+            fs::File::open(&path).chain_err(|| format!("Error opening {}", path.display()))?;
+        let mut manifest_str = String::new();
+        manifest
+            .read_to_string(&mut manifest_str)
+            .chain_err(|| format!("Error reading {}", path.display()))?;
+        let toml = manifest_str
+            .parse::<toml::Value>()
+            .map_err(|e| format!("Error parsing TOML from {}: {:?}", path.display(), e))?;
+        let key = "package.metadata.pkg-config";
+        let meta = toml
+            .get("package")
+            .and_then(|v| v.get("metadata"))
+            .and_then(|v| v.get("pkg-config"))
+            .ok_or(format!("No {} in {}", key, path.display()))?;
+        let table = meta
+            .as_table()
+            .ok_or(format!("{} not a table in {}", key, path.display()))?;
+        let mut libraries = HashMap::new();
+        for (name, value) in table {
+            let (lib_name, version) = match value {
+                toml::Value::String(ref s) => (name, s),
+                toml::Value::Table(ref t) => {
+                    let mut feature = None;
+                    let mut version = None;
+                    let mut lib_name = None;
+                    let mut enabled_feature_versions = Vec::new();
+                    for (tname, tvalue) in t {
+                        match (tname.as_str(), tvalue) {
+                            ("feature", &toml::Value::String(ref s)) => {
+                                feature = Some(s);
+                            }
+                            ("version", &toml::Value::String(ref s)) => {
+                                version = Some(s);
+                            }
+                            ("name", &toml::Value::String(ref s)) => {
+                                lib_name = Some(s);
+                            }
+                            ("feature-versions", &toml::Value::Table(ref feature_versions)) => {
+                                for (k, v) in feature_versions {
+                                    match (k.as_str(), v) {
+                                        (_, &toml::Value::String(ref feat_vers)) => {
+                                            if self.has_feature(&k) {
+                                                enabled_feature_versions.push(feat_vers);
+                                            }
+                                        }
+                                        _ => bail!(ErrorKind::InvalidMetadata(format!(
+                                            "Unexpected feature-version key: {} type {}",
+                                            k,
+                                            v.type_str()
+                                        ))),
+                                    }
+                                }
+                            }
+                            _ => bail!(ErrorKind::InvalidMetadata(format!(
+                                "Unexpected key {}.{}.{} type {}",
+                                key,
+                                name,
+                                tname,
+                                tvalue.type_str()
+                            ))),
+                        }
+                    }
+                    if let Some(feature) = feature {
+                        if !self.has_feature(feature) {
+                            continue;
+                        }
+                    }
+
+                    let version = {
+                        // Pick the highest feature enabled version
+                        if !enabled_feature_versions.is_empty() {
+                            enabled_feature_versions.sort_by(|a, b| {
+                                VersionCompare::compare(b, a)
+                                    .expect("failed to compare versions")
+                                    .ord()
+                                    .expect("invalid version")
+                            });
+                            Some(enabled_feature_versions[0])
+                        } else {
+                            version
+                        }
+                    };
+
+                    (
+                        lib_name.unwrap_or(name),
+                        version.ok_or(format!("No version in {}.{}", key, name))?,
+                    )
+                }
+                _ => bail!(ErrorKind::InvalidMetadata(format!(
+                    "{}.{} not a string or table",
+                    key, name
+                ))),
+            };
+            let library = if self.env.contains(&flag_override_var(name, "NO_PKG_CONFIG")) {
+                Library::from_env_variables()
+            } else {
+                Library::from_pkg_config(
+                    pkg_config::Config::new()
+                        .atleast_version(&version)
+                        .print_system_libs(false)
+                        .cargo_metadata(false)
+                        .probe(lib_name)?,
+                )
+            };
+
+            libraries.insert(name.clone(), library);
+        }
+        Ok(libraries)
+    }
+
+    fn override_from_flags(&self, libraries: &mut HashMap<String, Library>) {
+        for (name, lib) in libraries.iter_mut() {
+            if let Some(value) = self.env.get(&flag_override_var(name, "SEARCH_NATIVE")) {
+                lib.link_paths = split_paths(&value);
+            }
+            if let Some(value) = self.env.get(&flag_override_var(name, "SEARCH_FRAMEWORK")) {
+                lib.framework_paths = split_paths(&value);
+            }
+            if let Some(value) = self.env.get(&flag_override_var(name, "LIB")) {
+                lib.libs = split_string(&value);
+            }
+            if let Some(value) = self.env.get(&flag_override_var(name, "LIB_FRAMEWORK")) {
+                lib.frameworks = split_string(&value);
+            }
+            if let Some(value) = self.env.get(&flag_override_var(name, "INCLUDE")) {
+                lib.include_paths = split_paths(&value);
+            }
+        }
+    }
+
+    fn gen_flags(&self, libraries: &HashMap<String, Library>) -> Result<BuildFlags> {
+        let mut flags = BuildFlags::new();
+        let mut include_paths = Vec::new();
+
+        for (name, lib) in libraries.iter() {
+            include_paths.extend(lib.include_paths.clone());
+
+            if lib.source == Source::EnvVariables
+                && lib.libs.is_empty()
+                && lib.frameworks.is_empty()
+            {
+                bail!(ErrorKind::MissingLib(name.clone()));
+            }
+
+            lib.link_paths
+                .iter()
+                .for_each(|l| flags.add(BuildFlag::SearchNative(l.to_string_lossy().to_string())));
+            lib.framework_paths.iter().for_each(|f| {
+                flags.add(BuildFlag::SearchFramework(f.to_string_lossy().to_string()))
+            });
+            lib.libs
+                .iter()
+                .for_each(|l| flags.add(BuildFlag::Lib(l.clone())));
+            lib.frameworks
+                .iter()
+                .for_each(|f| flags.add(BuildFlag::LibFramework(f.clone())));
+        }
+
+        // Export DEP_$CRATE_INCLUDE env variable with the headers paths,
+        // see https://kornel.ski/rust-sys-crate#headers
+        if !include_paths.is_empty() {
+            if let Ok(paths) = std::env::join_paths(include_paths) {
+                flags.add(BuildFlag::Include(paths.to_string_lossy().to_string()));
+            }
+        }
+
+        Ok(flags)
+    }
+
+    fn has_feature(&self, feature: &str) -> bool {
+        let var = format!("CARGO_FEATURE_{}", feature.to_uppercase().replace('-', "_"));
+        self.env.contains(&var)
     }
 }
 
@@ -133,128 +356,6 @@ impl EnvVariables {
     }
 }
 
-fn has_feature(env_vars: &EnvVariables, feature: &str) -> bool {
-    let var = format!("CARGO_FEATURE_{}", feature.to_uppercase().replace('-', "_"));
-    env_vars.contains(&var)
-}
-
-fn probe_pkg_config(env_vars: &EnvVariables) -> Result<HashMap<String, Library>> {
-    let dir = env_vars
-        .get("CARGO_MANIFEST_DIR")
-        .ok_or("$CARGO_MANIFEST_DIR not set")?;
-    let mut path = PathBuf::from(dir);
-    path.push("Cargo.toml");
-    let mut manifest =
-        fs::File::open(&path).chain_err(|| format!("Error opening {}", path.display()))?;
-    let mut manifest_str = String::new();
-    manifest
-        .read_to_string(&mut manifest_str)
-        .chain_err(|| format!("Error reading {}", path.display()))?;
-    let toml = manifest_str
-        .parse::<toml::Value>()
-        .map_err(|e| format!("Error parsing TOML from {}: {:?}", path.display(), e))?;
-    let key = "package.metadata.pkg-config";
-    let meta = toml
-        .get("package")
-        .and_then(|v| v.get("metadata"))
-        .and_then(|v| v.get("pkg-config"))
-        .ok_or(format!("No {} in {}", key, path.display()))?;
-    let table = meta
-        .as_table()
-        .ok_or(format!("{} not a table in {}", key, path.display()))?;
-    let mut libraries = HashMap::new();
-    for (name, value) in table {
-        let (lib_name, version) = match value {
-            toml::Value::String(ref s) => (name, s),
-            toml::Value::Table(ref t) => {
-                let mut feature = None;
-                let mut version = None;
-                let mut lib_name = None;
-                let mut enabled_feature_versions = Vec::new();
-                for (tname, tvalue) in t {
-                    match (tname.as_str(), tvalue) {
-                        ("feature", &toml::Value::String(ref s)) => {
-                            feature = Some(s);
-                        }
-                        ("version", &toml::Value::String(ref s)) => {
-                            version = Some(s);
-                        }
-                        ("name", &toml::Value::String(ref s)) => {
-                            lib_name = Some(s);
-                        }
-                        ("feature-versions", &toml::Value::Table(ref feature_versions)) => {
-                            for (k, v) in feature_versions {
-                                match (k.as_str(), v) {
-                                    (_, &toml::Value::String(ref feat_vers)) => {
-                                        if has_feature(&env_vars, &k) {
-                                            enabled_feature_versions.push(feat_vers);
-                                        }
-                                    }
-                                    _ => bail!(ErrorKind::InvalidMetadata(format!(
-                                        "Unexpected feature-version key: {} type {}",
-                                        k,
-                                        v.type_str()
-                                    ))),
-                                }
-                            }
-                        }
-                        _ => bail!(ErrorKind::InvalidMetadata(format!(
-                            "Unexpected key {}.{}.{} type {}",
-                            key,
-                            name,
-                            tname,
-                            tvalue.type_str()
-                        ))),
-                    }
-                }
-                if let Some(feature) = feature {
-                    if !has_feature(&env_vars, feature) {
-                        continue;
-                    }
-                }
-
-                let version = {
-                    // Pick the highest feature enabled version
-                    if !enabled_feature_versions.is_empty() {
-                        enabled_feature_versions.sort_by(|a, b| {
-                            VersionCompare::compare(b, a)
-                                .expect("failed to compare versions")
-                                .ord()
-                                .expect("invalid version")
-                        });
-                        Some(enabled_feature_versions[0])
-                    } else {
-                        version
-                    }
-                };
-
-                (
-                    lib_name.unwrap_or(name),
-                    version.ok_or(format!("No version in {}.{}", key, name))?,
-                )
-            }
-            _ => bail!(ErrorKind::InvalidMetadata(format!(
-                "{}.{} not a string or table",
-                key, name
-            ))),
-        };
-        let library = if env_vars.contains(&flag_override_var(name, "NO_PKG_CONFIG")) {
-            Library::from_env_variables()
-        } else {
-            Library::from_pkg_config(
-                Config::new()
-                    .atleast_version(&version)
-                    .print_system_libs(false)
-                    .cargo_metadata(false)
-                    .probe(lib_name)?,
-            )
-        };
-
-        libraries.insert(name.clone(), library);
-    }
-    Ok(libraries)
-}
-
 // TODO: add support for "rustc-link-lib=static=" ?
 #[derive(Debug, PartialEq)]
 enum BuildFlag {
@@ -299,42 +400,6 @@ impl fmt::Display for BuildFlags {
     }
 }
 
-fn gen_flags(libraries: &HashMap<String, Library>) -> Result<BuildFlags> {
-    let mut flags = BuildFlags::new();
-    let mut include_paths = Vec::new();
-
-    for (name, lib) in libraries.iter() {
-        include_paths.extend(lib.include_paths.clone());
-
-        if lib.source == Source::EnvVariables && lib.libs.is_empty() && lib.frameworks.is_empty() {
-            bail!(ErrorKind::MissingLib(name.clone()));
-        }
-
-        lib.link_paths
-            .iter()
-            .for_each(|l| flags.add(BuildFlag::SearchNative(l.to_string_lossy().to_string())));
-        lib.framework_paths
-            .iter()
-            .for_each(|f| flags.add(BuildFlag::SearchFramework(f.to_string_lossy().to_string())));
-        lib.libs
-            .iter()
-            .for_each(|l| flags.add(BuildFlag::Lib(l.clone())));
-        lib.frameworks
-            .iter()
-            .for_each(|f| flags.add(BuildFlag::LibFramework(f.clone())));
-    }
-
-    // Export DEP_$CRATE_INCLUDE env variable with the headers paths,
-    // see https://kornel.ski/rust-sys-crate#headers
-    if !include_paths.is_empty() {
-        if let Ok(paths) = std::env::join_paths(include_paths) {
-            flags.add(BuildFlag::Include(paths.to_string_lossy().to_string()));
-        }
-    }
-
-    Ok(flags)
-}
-
 fn flag_override_var(lib: &str, flag: &str) -> String {
     format!("METADEPS_{}_{}", lib.to_shouty_snake_case(), flag)
 }
@@ -354,44 +419,4 @@ fn split_string(value: &str) -> Vec<String> {
     } else {
         Vec::new()
     }
-}
-
-fn override_from_flags(env_vars: &EnvVariables, libraries: &mut HashMap<String, Library>) {
-    for (name, lib) in libraries.iter_mut() {
-        if let Some(value) = env_vars.get(&flag_override_var(name, "SEARCH_NATIVE")) {
-            lib.link_paths = split_paths(&value);
-        }
-        if let Some(value) = env_vars.get(&flag_override_var(name, "SEARCH_FRAMEWORK")) {
-            lib.framework_paths = split_paths(&value);
-        }
-        if let Some(value) = env_vars.get(&flag_override_var(name, "LIB")) {
-            lib.libs = split_string(&value);
-        }
-        if let Some(value) = env_vars.get(&flag_override_var(name, "LIB_FRAMEWORK")) {
-            lib.frameworks = split_string(&value);
-        }
-        if let Some(value) = env_vars.get(&flag_override_var(name, "INCLUDE")) {
-            lib.include_paths = split_paths(&value);
-        }
-    }
-}
-
-fn probe_full(env: EnvVariables) -> Result<(HashMap<String, Library>, BuildFlags)> {
-    let mut libraries = probe_pkg_config(&env)?;
-    override_from_flags(&env, &mut libraries);
-    let flags = gen_flags(&libraries)?;
-
-    Ok((libraries, flags))
-}
-
-/// Probe all libraries configured in the Cargo.toml
-/// `[package.metadata.pkg-config]` section.
-pub fn probe() -> Result<HashMap<String, Library>> {
-    let env = EnvVariables::Environnement;
-    let (libraries, flags) = probe_full(env)?;
-
-    // Output cargo flags
-    println!("{}", flags);
-
-    Ok(libraries)
 }
