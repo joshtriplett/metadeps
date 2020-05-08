@@ -14,9 +14,6 @@
 
 #![deny(missing_docs)]
 
-#[macro_use]
-extern crate error_chain;
-
 #[cfg(test)]
 #[macro_use]
 extern crate lazy_static;
@@ -36,43 +33,40 @@ use strum_macros::EnumString;
 use thiserror::Error;
 use version_compare::VersionCompare;
 
-// TODO: port to this-error
-error_chain! {
-    foreign_links {
-        PkgConfig(pkg_config::Error) #[doc="pkg-config error"];
-        BuildInternalClosureError(BuildInternalClosureError) #[doc="build internal closure failure"];
-    }
-    errors {
-        /// Raised when an error is detected in the metadata defined in `Cargo.toml`
-        InvalidMetadata(details: String) {
-            display("{}", details)
-        }
-        /// Raised when dependency defined manually using `METADEPS_$NAME_NO_PKG_CONFIG`
-        /// did not define at least one lib using `METADEPS_$NAME_LIB` or
-        /// `METADEPS_$NAME_LIB_FRAMEWORK`
-        MissingLib(name: String) {
-            display("You should define at least one lib using {} or {}",
-                    flag_override_var(name, "LIB"),
-                    flag_override_var(name, "LIB_FRAMEWORK"))
-        }
-        /// An environnement variable in the form of `METADEPS_$NAME_BUILD_INTERNAL`
-        /// contained an invalid value (allowed: `auto`, `always`, `never`)
-        BuildInternalInvalid(details: String) {
-            display("{}", details)
-        }
-        /// Metadeps has been asked to internally build a lib, through
-        /// `METADEPS_$NAME_BUILD_INTERNAL=always' or `METADEPS_$NAME_BUILD_INTERNAL=auto',
-        /// but not closure has been defined using `Config::add_build_internal` to build
-        /// this lib
-        BuildInternalNoClosure(lib: String, version: String) {
-            display("Missing build internal closure for {} (version {})", lib, version)
-        }
-        /// The library which has been build internally does not match the
-        /// required version defined in `Cargo.toml`
-        BuildInternalWrongVersion(lib: String, version: String, expected: String) {
-            display("Internally built {} {} but minimum required version is {}", lib, version, expected)
-        }
-    }
+/// Metadeps errors
+#[derive(Error, Debug)]
+pub enum Error {
+    /// pkg-config error
+    #[error(transparent)]
+    PkgConfig(#[from] pkg_config::Error),
+    /// One of the `Config::add_build_internal` closures failed
+    #[error("Failed to build {0}: {1}")]
+    BuildInternalClosureError(String, #[source] BuildInternalClosureError),
+    /// Failed to read `Cargo.toml`
+    #[error("{0}")]
+    FailToRead(String, #[source] std::io::Error),
+    /// Raised when an error is detected in the metadata defined in `Cargo.toml`
+    #[error("{0}")]
+    InvalidMetadata(String),
+    /// Raised when dependency defined manually using `METADEPS_$NAME_NO_PKG_CONFIG`
+    /// did not define at least one lib using `METADEPS_$NAME_LIB` or
+    /// `METADEPS_$NAME_LIB_FRAMEWORK`
+    #[error("You should define at least one lib using {} or {}", flag_override_var(.0, "LIB"), flag_override_var(.0, "LIB_FRAMEWORK"))]
+    MissingLib(String),
+    /// An environnement variable in the form of `METADEPS_$NAME_BUILD_INTERNAL`
+    /// contained an invalid value (allowed: `auto`, `always`, `never`)
+    #[error("{0}")]
+    BuildInternalInvalid(String),
+    /// Metadeps has been asked to internally build a lib, through
+    /// `METADEPS_$NAME_BUILD_INTERNAL=always' or `METADEPS_$NAME_BUILD_INTERNAL=auto',
+    /// but not closure has been defined using `Config::add_build_internal` to build
+    /// this lib
+    #[error("Missing build internal closure for {0} (version {1})")]
+    BuildInternalNoClosure(String, String),
+    /// The library which has been build internally does not match the
+    /// required version defined in `Cargo.toml`
+    #[error("Internally built {0} {1} but minimum required version is {2}")]
+    BuildInternalWrongVersion(String, String, String),
 }
 
 #[derive(Error, Debug)]
@@ -127,7 +121,7 @@ impl Config {
 
     /// Probe all libraries configured in the Cargo.toml
     /// `[package.metadata.pkg-config]` section.
-    pub fn probe(self) -> Result<HashMap<String, Library>> {
+    pub fn probe(self) -> Result<HashMap<String, Library>, Error> {
         let (libraries, flags) = self.probe_full()?;
 
         // Output cargo flags
@@ -160,7 +154,7 @@ impl Config {
         }
     }
 
-    fn probe_full(mut self) -> Result<(HashMap<String, Library>, BuildFlags)> {
+    fn probe_full(mut self) -> Result<(HashMap<String, Library>, BuildFlags), Error> {
         let mut libraries = self.probe_pkg_config()?;
         self.override_from_flags(&mut libraries);
         let flags = self.gen_flags(&libraries)?;
@@ -168,31 +162,35 @@ impl Config {
         Ok((libraries, flags))
     }
 
-    fn probe_pkg_config(&mut self) -> Result<HashMap<String, Library>> {
+    fn probe_pkg_config(&mut self) -> Result<HashMap<String, Library>, Error> {
         let dir = self
             .env
             .get("CARGO_MANIFEST_DIR")
-            .ok_or("$CARGO_MANIFEST_DIR not set")?;
+            .ok_or_else(|| Error::InvalidMetadata("$CARGO_MANIFEST_DIR not set".into()))?;
         let mut path = PathBuf::from(dir);
         path.push("Cargo.toml");
-        let mut manifest =
-            fs::File::open(&path).chain_err(|| format!("Error opening {}", path.display()))?;
+        let mut manifest = fs::File::open(&path)
+            .map_err(|e| Error::FailToRead(format!("Error opening {}", path.display()), e))?;
         let mut manifest_str = String::new();
         manifest
             .read_to_string(&mut manifest_str)
-            .chain_err(|| format!("Error reading {}", path.display()))?;
-        let toml = manifest_str
-            .parse::<toml::Value>()
-            .map_err(|e| format!("Error parsing TOML from {}: {:?}", path.display(), e))?;
+            .map_err(|e| Error::FailToRead(format!("Error reading {}", path.display()), e))?;
+        let toml = manifest_str.parse::<toml::Value>().map_err(|e| {
+            Error::InvalidMetadata(format!(
+                "Error parsing TOML from {}: {:?}",
+                path.display(),
+                e
+            ))
+        })?;
         let key = "package.metadata.pkg-config";
         let meta = toml
             .get("package")
             .and_then(|v| v.get("metadata"))
             .and_then(|v| v.get("pkg-config"))
-            .ok_or(format!("No {} in {}", key, path.display()))?;
-        let table = meta
-            .as_table()
-            .ok_or(format!("{} not a table in {}", key, path.display()))?;
+            .ok_or_else(|| Error::InvalidMetadata(format!("No {} in {}", key, path.display())))?;
+        let table = meta.as_table().ok_or_else(|| {
+            Error::InvalidMetadata(format!("{} not a table in {}", key, path.display()))
+        })?;
         let mut libraries = HashMap::new();
         for (name, value) in table {
             let (lib_name, version) = match value {
@@ -221,21 +219,25 @@ impl Config {
                                                 enabled_feature_versions.push(feat_vers);
                                             }
                                         }
-                                        _ => bail!(ErrorKind::InvalidMetadata(format!(
-                                            "Unexpected feature-version key: {} type {}",
-                                            k,
-                                            v.type_str()
-                                        ))),
+                                        _ => {
+                                            return Err(Error::InvalidMetadata(format!(
+                                                "Unexpected feature-version key: {} type {}",
+                                                k,
+                                                v.type_str()
+                                            )))
+                                        }
                                     }
                                 }
                             }
-                            _ => bail!(ErrorKind::InvalidMetadata(format!(
-                                "Unexpected key {}.{}.{} type {}",
-                                key,
-                                name,
-                                tname,
-                                tvalue.type_str()
-                            ))),
+                            _ => {
+                                return Err(Error::InvalidMetadata(format!(
+                                    "Unexpected key {}.{}.{} type {}",
+                                    key,
+                                    name,
+                                    tname,
+                                    tvalue.type_str()
+                                )))
+                            }
                         }
                     }
                     if let Some(feature) = feature {
@@ -261,13 +263,17 @@ impl Config {
 
                     (
                         lib_name.unwrap_or(name),
-                        version.ok_or(format!("No version in {}.{}", key, name))?,
+                        version.ok_or_else(|| {
+                            Error::InvalidMetadata(format!("No version in {}.{}", key, name))
+                        })?,
                     )
                 }
-                _ => bail!(ErrorKind::InvalidMetadata(format!(
-                    "{}.{} not a string or table",
-                    key, name
-                ))),
+                _ => {
+                    return Err(Error::InvalidMetadata(format!(
+                        "{}.{} not a string or table",
+                        key, name
+                    )))
+                }
             };
 
             let build_internal = self.get_build_internal_status(name)?;
@@ -300,11 +306,11 @@ impl Config {
         Ok(libraries)
     }
 
-    fn get_build_internal_status(&self, name: &str) -> Result<BuildInternal> {
+    fn get_build_internal_status(&self, name: &str) -> Result<BuildInternal, Error> {
         let var = flag_override_var(name, "BUILD_INTERNAL");
         let b = match self.env.get(&var).as_deref() {
             Some(s) => BuildInternal::from_str(s).map_err(|_| {
-                ErrorKind::BuildInternalInvalid(format!(
+                Error::BuildInternalInvalid(format!(
                     "Invalid value in {}: {} (allowed: 'auto', 'always', 'never')",
                     var, s
                 ))
@@ -315,21 +321,18 @@ impl Config {
         Ok(b)
     }
 
-    fn call_build_internal(&mut self, name: &str, version: &str) -> Result<Library> {
+    fn call_build_internal(&mut self, name: &str, version: &str) -> Result<Library, Error> {
         let lib = match self.build_internals.remove(name) {
-            Some(f) => f(version)?,
-            None => bail!(ErrorKind::BuildInternalNoClosure(
-                name.into(),
-                version.into()
-            )),
+            Some(f) => f(version).map_err(|e| Error::BuildInternalClosureError(name.into(), e))?,
+            None => return Err(Error::BuildInternalNoClosure(name.into(), version.into())),
         };
 
         // Check that the lib built internally matches the required version
         match VersionCompare::compare(&lib.version, version) {
-            Ok(version_compare::CompOp::Lt) => bail!(ErrorKind::BuildInternalWrongVersion(
+            Ok(version_compare::CompOp::Lt) => Err(Error::BuildInternalWrongVersion(
                 name.into(),
                 lib.version.clone(),
-                version.into()
+                version.into(),
             )),
             _ => Ok(lib),
         }
@@ -355,7 +358,7 @@ impl Config {
         }
     }
 
-    fn gen_flags(&self, libraries: &HashMap<String, Library>) -> Result<BuildFlags> {
+    fn gen_flags(&self, libraries: &HashMap<String, Library>) -> Result<BuildFlags, Error> {
         let mut flags = BuildFlags::new();
         let mut include_paths = Vec::new();
 
@@ -366,7 +369,7 @@ impl Config {
                 && lib.libs.is_empty()
                 && lib.frameworks.is_empty()
             {
-                bail!(ErrorKind::MissingLib(name.clone()));
+                return Err(Error::MissingLib(name.clone()));
             }
 
             lib.link_paths
@@ -481,7 +484,7 @@ impl Library {
         pkg_config_dir: P,
         lib: &str,
         version: &str,
-    ) -> std::result::Result<Self, BuildInternalClosureError>
+    ) -> Result<Self, BuildInternalClosureError>
     where
         P: AsRef<Path>,
     {

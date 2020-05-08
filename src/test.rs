@@ -6,9 +6,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Mutex;
 
-use super::{
-    BuildFlags, BuildInternalClosureError, Config, EnvVariables, ErrorKind, Library, Result,
-};
+use super::{BuildFlags, BuildInternalClosureError, Config, EnvVariables, Error, Library};
 
 lazy_static! {
     static ref LOCK: Mutex<()> = Mutex::new(());
@@ -47,7 +45,7 @@ fn create_config(path: &str, env: Vec<(&'static str, &'static str)>) -> Config {
 fn toml(
     path: &str,
     env: Vec<(&'static str, &'static str)>,
-) -> Result<(std::collections::HashMap<String, Library>, BuildFlags)> {
+) -> Result<(std::collections::HashMap<String, Library>, BuildFlags), Error> {
     create_config(path, env).probe_full()
 }
 
@@ -88,8 +86,8 @@ fn toml_pkg_config_err_version(
     env_vars: Vec<(&'static str, &'static str)>,
 ) {
     let err = toml(path, env_vars).unwrap_err();
-    match err.kind() {
-        ErrorKind::PkgConfig(e) => match e {
+    match err {
+        Error::PkgConfig(e) => match e {
             pkg_config::Error::Failure {
                 command: cmd,
                 output: _,
@@ -449,7 +447,7 @@ fn build_internal_auto_never() {
     });
 
     let err = config.probe_full().unwrap_err();
-    assert!(matches!(err.into(), ErrorKind::PkgConfig(..)));
+    assert!(matches!(err, Error::PkgConfig(..)));
 
     assert_eq!(called.get(), false);
 }
@@ -462,7 +460,7 @@ fn build_internal_always_no_closure() {
     );
 
     let err = config.probe_full().unwrap_err();
-    assert!(matches!(err.into(), ErrorKind::BuildInternalNoClosure(..)));
+    assert!(matches!(err, Error::BuildInternalNoClosure(..)));
 }
 
 #[test]
@@ -473,7 +471,7 @@ fn build_internal_invalid() {
     );
 
     let err = config.probe_full().unwrap_err();
-    assert!(matches!(err.into(), ErrorKind::BuildInternalInvalid(..)));
+    assert!(matches!(err, Error::BuildInternalInvalid(..)));
 }
 
 #[test]
@@ -499,10 +497,7 @@ fn build_internal_wrong_version() {
     });
 
     let err = config.probe_full().unwrap_err();
-    assert!(matches!(
-        err.into(),
-        ErrorKind::BuildInternalWrongVersion(..)
-    ));
+    assert!(matches!(err, Error::BuildInternalWrongVersion(..)));
     assert_eq!(called.get(), true);
 }
 
@@ -520,9 +515,6 @@ fn build_internal_fail() {
     });
 
     let err = config.probe_full().unwrap_err();
-    assert!(matches!(
-        err.into(),
-        ErrorKind::BuildInternalClosureError(..)
-    ));
+    assert!(matches!(err, Error::BuildInternalClosureError(..)));
     assert_eq!(called.get(), true);
 }
