@@ -1,9 +1,9 @@
 [package]
-name = "metadeps"
-version = "1.1.2"
-authors = ["Josh Triplett <josh@joshtriplett.org>"]
+name = "system-deps"
+version = "1.1.0"
+authors = ["Guillaume Desmottes <guillaume.desmottes@collabora.com>", "Josh Triplett <josh@joshtriplett.org>"]
 license = "MIT/Apache-2.0"
-repository = "https://github.com/joshtriplett/metadeps"
+repository = "https://github.com/gdesmott/system-deps"
 description = "Run pkg-config from declarative dependencies in Cargo.toml"
 keywords = ["pkg-config", "build-dependencies", "build-depends", "manifest", "metadata"]
 edition = "2018"

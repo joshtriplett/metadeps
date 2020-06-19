@@ -1,4 +1,4 @@
-metadeps lets you write `pkg-config` dependencies in `Cargo.toml` metadata,
+`system-deps` lets you write `pkg-config` dependencies in `Cargo.toml` metadata,
 rather than programmatically in `build.rs`.  This makes those dependencies
 declarative, so other tools can read them as well.
 
@@ -7,7 +7,7 @@ declarative, so other tools can read them as well.
 In your `Cargo.toml`, add the following to your `[build-dependencies]`:
 
 ```toml
-metadeps = "1.1"
+system-deps = "1.1"
 ```
 
 Then, to declare a dependency on `testlib >= 1.2`, a conditional dependency
@@ -24,10 +24,10 @@ glib = { name = "glib-2.0", version = "2.64" }
 In your `build.rs`, add:
 
 ```rust
-extern crate metadeps;
+extern crate system_deps;
 
 fn main() {
-    metadeps::probe().unwrap();
+    system_deps::probe().unwrap();
 }
 ```
 

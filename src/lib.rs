@@ -1,8 +1,8 @@
-//! metadeps lets you write `pkg-config` dependencies in `Cargo.toml` metadata,
+//! system-deps lets you write `pkg-config` dependencies in `Cargo.toml` metadata,
 //! rather than programmatically in `build.rs`.  This makes those dependencies
 //! declarative, so other tools can read them as well.
 //!
-//! metadeps parses metadata like this in `Cargo.toml`:
+//! system-deps parses metadata like this in `Cargo.toml`:
 //!
 //! ```toml
 //! [package.metadata.pkg-config]
@@ -33,7 +33,7 @@ use strum_macros::EnumString;
 use thiserror::Error;
 use version_compare::VersionCompare;
 
-/// Metadeps errors
+/// system-deps errors
 #[derive(Error, Debug)]
 pub enum Error {
     /// pkg-config error
@@ -57,7 +57,7 @@ pub enum Error {
     /// contained an invalid value (allowed: `auto`, `always`, `never`)
     #[error("{0}")]
     BuildInternalInvalid(String),
-    /// Metadeps has been asked to internally build a lib, through
+    /// system-deps has been asked to internally build a lib, through
     /// `METADEPS_$NAME_BUILD_INTERNAL=always' or `METADEPS_$NAME_BUILD_INTERNAL=auto',
     /// but not closure has been defined using `Config::add_build_internal` to build
     /// this lib
@@ -130,7 +130,7 @@ impl Config {
         Ok(libraries)
     }
 
-    /// Add hook so metadeps can internally build library `name` if requested by user.
+    /// Add hook so system-deps can internally build library `name` if requested by user.
     ///
     /// It will only be triggered if the environnement variable
     /// `METADEPS_$NAME_BUILD_INTERNAL` is defined with either `always` or
@@ -462,7 +462,7 @@ impl Library {
 
     /// Create a `Library` by probing `pkg-config` on an internal directory.
     /// This helper is meant to be used by `Config::add_build_internal` closures
-    /// after having built the lib to return the library information to metadata.
+    /// after having built the lib to return the library information to system-deps.
     ///
     /// # Arguments
     ///
@@ -473,10 +473,10 @@ impl Library {
     /// # Examples
     ///
     /// ```
-    /// let mut config = metadeps::Config::new();
+    /// let mut config = system_deps::Config::new();
     /// config.add_build_internal("mylib", |version| {
     ///   // Actually build the library here
-    ///   metadeps::Library::from_internal_pkg_config("build-dir",
+    ///   system_deps::Library::from_internal_pkg_config("build-dir",
     ///       "mylib", version)
     /// });
     /// ```
