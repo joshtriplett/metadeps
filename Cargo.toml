@@ -7,6 +7,8 @@ repository = "https://github.com/gdesmott/system-deps"
 description = "Run pkg-config from declarative dependencies in Cargo.toml"
 keywords = ["pkg-config", "build-dependencies", "build-depends", "manifest", "metadata"]
 edition = "2018"
+documentation = "https://docs.rs/system-deps/"
+readme = "README.md"
 
 [dependencies]
 pkg-config = "0.3.8"
