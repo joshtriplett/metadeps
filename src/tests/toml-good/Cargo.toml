@@ -1,4 +1,4 @@
-[package.metadata.pkg-config]
+[package.system-deps]
 testdata = "4"
 testlib = { version = "1", feature = "test-feature" }
 testmore = { version = "2", feature = "another-test-feature" }

@@ -1,2 +1,2 @@
-[package.metadata]
-pkg-config = "not a table"
+[package]
+system-deps = "not a table"

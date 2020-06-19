@@ -1,2 +1,2 @@
-[package.metadata.pkg-config]
+[package.system-deps]
 testlib = { feature = "test-feature" }

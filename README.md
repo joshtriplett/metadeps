@@ -15,7 +15,7 @@ on `testdata >= 4.5` and a dependency on `glib-2.0 >= 2.64`
 add the following section:
 
 ```toml
-[package.metadata.pkg-config]
+[package.system-deps]
 testlib = "1.2"
 testdata = { version = "4.5", feature = "use-testdata" }
 glib = { name = "glib-2.0", version = "2.64" }
@@ -38,7 +38,7 @@ Dependency versions can also be controlled using features:
 v1_2 = []
 v1_4 = ["v1_4"]
 
-[package.metadata.pkg-config]
+[package.system-deps]
 gstreamer = { name = "gstreamer-1.0", version = "1.0", feature-versions = { v1_2 = "1.2", v1_4 = "1.4" }}
 ```
 
