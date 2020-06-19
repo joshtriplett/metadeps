@@ -1,6 +1,12 @@
-`system-deps` lets you write `pkg-config` dependencies in `Cargo.toml` metadata,
-rather than programmatically in `build.rs`.  This makes those dependencies
+`system-deps` lets you write system dependencies in `Cargo.toml` metadata,
+rather than programmatically in `build.rs`. This makes those dependencies
 declarative, so other tools can read them as well.
+
+For now only `pkg-config` dependencies are supported but we are planning to
+[expand it](https://github.com/gdesmott/system-deps/issues/3) at some point.
+
+`system-deps` has been started as a fork of the
+[metadeps](https://github.com/joshtriplett/metadeps) project.
 
 # Usage
 
@@ -24,10 +30,8 @@ glib = { name = "glib-2.0", version = "2.64" }
 In your `build.rs`, add:
 
 ```rust
-extern crate system_deps;
-
 fn main() {
-    system_deps::probe().unwrap();
+    system_deps::Config::new().probe().unwrap();
 }
 ```
 
