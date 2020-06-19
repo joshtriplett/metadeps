@@ -48,17 +48,17 @@ pub enum Error {
     /// Raised when an error is detected in the metadata defined in `Cargo.toml`
     #[error("{0}")]
     InvalidMetadata(String),
-    /// Raised when dependency defined manually using `METADEPS_$NAME_NO_PKG_CONFIG`
-    /// did not define at least one lib using `METADEPS_$NAME_LIB` or
-    /// `METADEPS_$NAME_LIB_FRAMEWORK`
+    /// Raised when dependency defined manually using `SYSTEM_DEPS_$NAME_NO_PKG_CONFIG`
+    /// did not define at least one lib using `SYSTEM_DEPS_$NAME_LIB` or
+    /// `SYSTEM_DEPS_$NAME_LIB_FRAMEWORK`
     #[error("You should define at least one lib using {} or {}", flag_override_var(.0, "LIB"), flag_override_var(.0, "LIB_FRAMEWORK"))]
     MissingLib(String),
-    /// An environnement variable in the form of `METADEPS_$NAME_BUILD_INTERNAL`
+    /// An environnement variable in the form of `SYSTEM_DEPS_$NAME_BUILD_INTERNAL`
     /// contained an invalid value (allowed: `auto`, `always`, `never`)
     #[error("{0}")]
     BuildInternalInvalid(String),
     /// system-deps has been asked to internally build a lib, through
-    /// `METADEPS_$NAME_BUILD_INTERNAL=always' or `METADEPS_$NAME_BUILD_INTERNAL=auto',
+    /// `SYSTEM_DEPS_$NAME_BUILD_INTERNAL=always' or `SYSTEM_DEPS_$NAME_BUILD_INTERNAL=auto',
     /// but not closure has been defined using `Config::add_build_internal` to build
     /// this lib
     #[error("Missing build internal closure for {0} (version {1})")]
@@ -133,7 +133,7 @@ impl Config {
     /// Add hook so system-deps can internally build library `name` if requested by user.
     ///
     /// It will only be triggered if the environnement variable
-    /// `METADEPS_$NAME_BUILD_INTERNAL` is defined with either `always` or
+    /// `SYSTEM_DEPS_$NAME_BUILD_INTERNAL` is defined with either `always` or
     /// `auto` as value. In the latter case, `func` is called only if the requested
     /// version of the library was not found on the system.
     ///
@@ -581,7 +581,7 @@ impl fmt::Display for BuildFlags {
 }
 
 fn flag_override_var(lib: &str, flag: &str) -> String {
-    format!("METADEPS_{}_{}", lib.to_shouty_snake_case(), flag)
+    format!("SYSTEM_DEPS_{}_{}", lib.to_shouty_snake_case(), flag)
 }
 
 fn split_paths(value: &str) -> Vec<PathBuf> {

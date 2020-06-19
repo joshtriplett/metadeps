@@ -185,7 +185,10 @@ fn feature_versions() {
 fn override_search_native() {
     let (libraries, flags) = toml(
         "toml-good",
-        vec![("METADEPS_TESTLIB_SEARCH_NATIVE", "/custom/path:/other/path")],
+        vec![(
+            "SYSTEM_DEPS_TESTLIB_SEARCH_NATIVE",
+            "/custom/path:/other/path",
+        )],
     )
     .unwrap();
     let testlib = libraries.get("testlib").unwrap();
@@ -210,7 +213,7 @@ cargo:include=/usr/include/testlib
 fn override_search_framework() {
     let (libraries, flags) = toml(
         "toml-good",
-        vec![("METADEPS_TESTLIB_SEARCH_FRAMEWORK", "/custom/path")],
+        vec![("SYSTEM_DEPS_TESTLIB_SEARCH_FRAMEWORK", "/custom/path")],
     )
     .unwrap();
     let testlib = libraries.get("testlib").unwrap();
@@ -231,7 +234,7 @@ cargo:include=/usr/include/testlib
 fn override_lib() {
     let (libraries, flags) = toml(
         "toml-good",
-        vec![("METADEPS_TESTLIB_LIB", "overrided-test other-test")],
+        vec![("SYSTEM_DEPS_TESTLIB_LIB", "overrided-test other-test")],
     )
     .unwrap();
     let testlib = libraries.get("testlib").unwrap();
@@ -253,7 +256,7 @@ cargo:include=/usr/include/testlib
 fn override_framework() {
     let (libraries, flags) = toml(
         "toml-good",
-        vec![("METADEPS_TESTLIB_LIB_FRAMEWORK", "overrided-framework")],
+        vec![("SYSTEM_DEPS_TESTLIB_LIB_FRAMEWORK", "overrided-framework")],
     )
     .unwrap();
     let testlib = libraries.get("testlib").unwrap();
@@ -274,7 +277,7 @@ cargo:include=/usr/include/testlib
 fn override_include() {
     let (libraries, flags) = toml(
         "toml-good",
-        vec![("METADEPS_TESTLIB_INCLUDE", "/other/include")],
+        vec![("SYSTEM_DEPS_TESTLIB_INCLUDE", "/other/include")],
     )
     .unwrap();
     let testlib = libraries.get("testlib").unwrap();
@@ -296,11 +299,11 @@ fn override_unset() {
     let (libraries, flags) = toml(
         "toml-good",
         vec![
-            ("METADEPS_TESTLIB_SEARCH_NATIVE", ""),
-            ("METADEPS_TESTLIB_SEARCH_FRAMEWORK", ""),
-            ("METADEPS_TESTLIB_LIB", ""),
-            ("METADEPS_TESTLIB_LIB_FRAMEWORK", ""),
-            ("METADEPS_TESTLIB_INCLUDE", ""),
+            ("SYSTEM_DEPS_TESTLIB_SEARCH_NATIVE", ""),
+            ("SYSTEM_DEPS_TESTLIB_SEARCH_FRAMEWORK", ""),
+            ("SYSTEM_DEPS_TESTLIB_LIB", ""),
+            ("SYSTEM_DEPS_TESTLIB_LIB_FRAMEWORK", ""),
+            ("SYSTEM_DEPS_TESTLIB_INCLUDE", ""),
         ],
     )
     .unwrap();
@@ -319,8 +322,8 @@ fn override_no_pkg_config() {
     let (libraries, flags) = toml(
         "toml-good",
         vec![
-            ("METADEPS_TESTLIB_NO_PKG_CONFIG", "1"),
-            ("METADEPS_TESTLIB_LIB", "custom-lib"),
+            ("SYSTEM_DEPS_TESTLIB_NO_PKG_CONFIG", "1"),
+            ("SYSTEM_DEPS_TESTLIB_LIB", "custom-lib"),
         ],
     )
     .unwrap();
@@ -336,10 +339,14 @@ fn override_no_pkg_config() {
 
 #[test]
 fn override_no_pkg_config_error() {
-    let err = toml("toml-good", vec![("METADEPS_TESTLIB_NO_PKG_CONFIG", "1")]).unwrap_err();
+    let err = toml(
+        "toml-good",
+        vec![("SYSTEM_DEPS_TESTLIB_NO_PKG_CONFIG", "1")],
+    )
+    .unwrap_err();
     assert_eq!(
         err.to_string(),
-        "You should define at least one lib using METADEPS_TESTLIB_LIB or METADEPS_TESTLIB_LIB_FRAMEWORK"
+        "You should define at least one lib using SYSTEM_DEPS_TESTLIB_LIB or SYSTEM_DEPS_TESTLIB_LIB_FRAMEWORK"
     );
 }
 
@@ -349,7 +356,7 @@ fn build_internal_always() {
     let called_clone = called.clone();
     let config = create_config(
         "toml-good",
-        vec![("METADEPS_TESTLIB_BUILD_INTERNAL", "always")],
+        vec![("SYSTEM_DEPS_TESTLIB_BUILD_INTERNAL", "always")],
     )
     .add_build_internal("testlib", move |version| {
         called_clone.replace(true);
@@ -375,7 +382,7 @@ fn build_internal_auto_not_called() {
     let called_clone = called.clone();
     let config = create_config(
         "toml-good",
-        vec![("METADEPS_TESTLIB_BUILD_INTERNAL", "auto")],
+        vec![("SYSTEM_DEPS_TESTLIB_BUILD_INTERNAL", "auto")],
     )
     .add_build_internal("testlib", move |_version| {
         called_clone.replace(true);
@@ -401,7 +408,7 @@ fn build_internal_auto_called() {
     let config = create_config(
         "toml-feature-versions",
         vec![
-            ("METADEPS_TESTDATA_BUILD_INTERNAL", "auto"),
+            ("SYSTEM_DEPS_TESTDATA_BUILD_INTERNAL", "auto"),
             ("CARGO_FEATURE_V5", ""),
         ],
     )
@@ -431,7 +438,7 @@ fn build_internal_auto_never() {
     let config = create_config(
         "toml-feature-versions",
         vec![
-            ("METADEPS_TESTDATA_BUILD_INTERNAL", "never"),
+            ("SYSTEM_DEPS_TESTDATA_BUILD_INTERNAL", "never"),
             ("CARGO_FEATURE_V5", ""),
         ],
     )
@@ -456,7 +463,7 @@ fn build_internal_auto_never() {
 fn build_internal_always_no_closure() {
     let config = create_config(
         "toml-good",
-        vec![("METADEPS_TESTLIB_BUILD_INTERNAL", "always")],
+        vec![("SYSTEM_DEPS_TESTLIB_BUILD_INTERNAL", "always")],
     );
 
     let err = config.probe_full().unwrap_err();
@@ -467,7 +474,7 @@ fn build_internal_always_no_closure() {
 fn build_internal_invalid() {
     let config = create_config(
         "toml-good",
-        vec![("METADEPS_TESTLIB_BUILD_INTERNAL", "badger")],
+        vec![("SYSTEM_DEPS_TESTLIB_BUILD_INTERNAL", "badger")],
     );
 
     let err = config.probe_full().unwrap_err();
@@ -482,7 +489,7 @@ fn build_internal_wrong_version() {
     let config = create_config(
         "toml-feature-versions",
         vec![
-            ("METADEPS_TESTDATA_BUILD_INTERNAL", "auto"),
+            ("SYSTEM_DEPS_TESTDATA_BUILD_INTERNAL", "auto"),
             ("CARGO_FEATURE_V5", ""),
         ],
     )
@@ -507,7 +514,7 @@ fn build_internal_fail() {
     let called_clone = called.clone();
     let config = create_config(
         "toml-good",
-        vec![("METADEPS_TESTLIB_BUILD_INTERNAL", "always")],
+        vec![("SYSTEM_DEPS_TESTLIB_BUILD_INTERNAL", "always")],
     )
     .add_build_internal("testlib", move |_version| {
         called_clone.replace(true);
