@@ -1,2 +1,2 @@
-[package]
+[package.metadata]
 system-deps = "not a table"

@@ -1,2 +1,2 @@
-[package.system-deps]
+[package.metadata.system-deps]
 testlib = { version = "1", feature = 2 }

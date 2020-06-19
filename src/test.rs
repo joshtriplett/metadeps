@@ -108,19 +108,22 @@ fn missing_file() {
 
 #[test]
 fn missing_key() {
-    toml_err("toml-missing-key", "No package.system-deps in");
+    toml_err("toml-missing-key", "No package.metadata.system-deps in");
 }
 
 #[test]
 fn not_table() {
-    toml_err("toml-not-table", "package.system-deps not a table in");
+    toml_err(
+        "toml-not-table",
+        "package.metadata.system-deps not a table in",
+    );
 }
 
 #[test]
 fn version_missing() {
     toml_err(
         "toml-version-missing",
-        "No version in package.system-deps.testlib",
+        "No version in package.metadata.system-deps.testlib",
     );
 }
 
@@ -128,7 +131,7 @@ fn version_missing() {
 fn version_not_string() {
     toml_err(
         "toml-version-not-string",
-        "package.system-deps.testlib not a string or table",
+        "package.metadata.system-deps.testlib not a string or table",
     );
 }
 
@@ -136,7 +139,7 @@ fn version_not_string() {
 fn version_in_table_not_string() {
     toml_err(
         "toml-version-in-table-not-string",
-        "Unexpected key package.system-deps.testlib.version type integer",
+        "Unexpected key package.metadata.system-deps.testlib.version type integer",
     );
 }
 
@@ -144,7 +147,7 @@ fn version_in_table_not_string() {
 fn feature_not_string() {
     toml_err(
         "toml-feature-not-string",
-        "Unexpected key package.system-deps.testlib.feature type integer",
+        "Unexpected key package.metadata.system-deps.testlib.feature type integer",
     );
 }
 
@@ -152,7 +155,7 @@ fn feature_not_string() {
 fn unexpected_key() {
     toml_err(
         "toml-unexpected-key",
-        "Unexpected key package.system-deps.testlib.color type string",
+        "Unexpected key package.metadata.system-deps.testlib.color type string",
     );
 }
 

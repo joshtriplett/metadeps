@@ -6,7 +6,7 @@
 //! add the following section:
 //!
 //! ```toml
-//! [package.system-deps]
+//! [package.metadata.system-deps]
 //! testlib = "1.2"
 //! testdata = { version = "4.5", feature = "use-testdata" }
 //! glib = { name = "glib-2.0", version = "2.64" }
@@ -141,7 +141,7 @@ impl Config {
     }
 
     /// Probe all libraries configured in the Cargo.toml
-    /// `[package.system-deps]` section.
+    /// `[package.metadata.system-deps]` section.
     pub fn probe(self) -> Result<HashMap<String, Library>, Error> {
         let (libraries, flags) = self.probe_full()?;
 
@@ -203,9 +203,10 @@ impl Config {
                 e
             ))
         })?;
-        let key = "package.system-deps";
+        let key = "package.metadata.system-deps";
         let meta = toml
             .get("package")
+            .and_then(|v| v.get("metadata"))
             .and_then(|v| v.get("system-deps"))
             .ok_or_else(|| Error::InvalidMetadata(format!("No {} in {}", key, path.display())))?;
         let table = meta.as_table().ok_or_else(|| {
