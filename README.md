@@ -13,7 +13,7 @@ For now only `pkg-config` dependencies are supported but we are planning to
 In your `Cargo.toml`, add the following to your `[build-dependencies]`:
 
 ```toml
-system-deps = "1.1"
+system-deps = "1.2"
 ```
 
 Then, to declare a dependency on `testlib >= 1.2`, a conditional dependency
