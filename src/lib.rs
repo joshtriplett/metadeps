@@ -8,7 +8,7 @@
 //!
 //! ```toml
 //! [build-dependencies]
-//! system-deps = "1.2"
+//! system-deps = "1.3"
 //! ```
 //!
 //! Then, to declare a dependency on `testlib >= 1.2`
