@@ -366,7 +366,7 @@ impl Config {
             let library = if self.env.contains(&flag_override_var(name, "NO_PKG_CONFIG")) {
                 Library::from_env_variables()
             } else if build_internal == BuildInternal::Always {
-                self.call_build_internal(name, version)?
+                self.call_build_internal(lib_name, version)?
             } else {
                 match pkg_config::Config::new()
                     .atleast_version(&version)

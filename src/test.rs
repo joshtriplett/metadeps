@@ -353,12 +353,13 @@ fn override_no_pkg_config_error() {
 fn test_build_internal(
     path: &'static str,
     env: Vec<(&'static str, &'static str)>,
-    lib: &'static str,
+    expected_lib: &'static str,
 ) -> Result<(HashMap<String, Library>, bool), (Error, bool)> {
     let called = Rc::new(Cell::new(false));
     let called_clone = called.clone();
-    let config = create_config(path, env).add_build_internal(lib, move |lib, version| {
+    let config = create_config(path, env).add_build_internal(expected_lib, move |lib, version| {
         called_clone.replace(true);
+        assert_eq!(lib, expected_lib);
         let mut lib = pkg_config::Config::new()
             .print_system_libs(false)
             .cargo_metadata(false)
@@ -579,4 +580,17 @@ fn build_internal_gobal_override() {
     assert_eq!(called.get(), (false, true));
     assert!(libraries.get("testlib").is_some());
     assert!(libraries.get("testdata").is_some());
+}
+
+#[test]
+fn build_internal_override_name() {
+    let (libraries, called) = test_build_internal(
+        "toml-override-name",
+        vec![("SYSTEM_DEPS_BUILD_INTERNAL", "always")],
+        "testlib-2.0",
+    )
+    .unwrap();
+
+    assert_eq!(called, true);
+    assert!(libraries.get("testlib").is_some());
 }
