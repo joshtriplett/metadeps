@@ -91,6 +91,9 @@
 //! - `auto`: build the dependency only if the required version has not been found by `pkg-config`;
 //! - `always`: always build the dependency, ignoring any version which may be installed on the system;
 //! - `never`: (default) never build the dependency, `system-deps` will fail if the required version is not found on the system.
+//!
+//! You can also use the `SYSTEM_DEPS_BUILD_INTERNAL` environment variable with the same values
+//! defining the behavior for all the dependencies which don't have `SYSTEM_DEPS_$NAME_BUILD_INTERNAL` defined.
 
 #![deny(missing_docs)]
 
@@ -387,19 +390,30 @@ impl Config {
         Ok(libraries)
     }
 
+    fn get_build_internal_env_var(&self, var: &str) -> Result<Option<BuildInternal>, Error> {
+        match self.env.get(&var).as_deref() {
+            Some(s) => {
+                let b = BuildInternal::from_str(s).map_err(|_| {
+                    Error::BuildInternalInvalid(format!(
+                        "Invalid value in {}: {} (allowed: 'auto', 'always', 'never')",
+                        var, s
+                    ))
+                })?;
+                Ok(Some(b))
+            }
+            None => Ok(None),
+        }
+    }
+
     fn get_build_internal_status(&self, name: &str) -> Result<BuildInternal, Error> {
         let var = flag_override_var(name, "BUILD_INTERNAL");
-        let b = match self.env.get(&var).as_deref() {
-            Some(s) => BuildInternal::from_str(s).map_err(|_| {
-                Error::BuildInternalInvalid(format!(
-                    "Invalid value in {}: {} (allowed: 'auto', 'always', 'never')",
-                    var, s
-                ))
-            })?,
-            None => BuildInternal::default(),
-        };
 
-        Ok(b)
+        match self.get_build_internal_env_var(&var)? {
+            Some(b) => Ok(b),
+            None => Ok(self
+                .get_build_internal_env_var("SYSTEM_DEPS_BUILD_INTERNAL")?
+                .unwrap_or_default()),
+        }
     }
 
     fn call_build_internal(&mut self, name: &str, version: &str) -> Result<Library, Error> {

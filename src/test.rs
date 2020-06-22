@@ -503,3 +503,80 @@ fn build_internal_fail() {
     assert!(matches!(err, Error::BuildInternalClosureError(..)));
     assert_eq!(called.get(), true);
 }
+
+#[test]
+fn build_internal_always_gobal() {
+    let called = Rc::new(Cell::new((false, false)));
+    let called_clone = called.clone();
+    let called_clone2 = called.clone();
+    let config = create_config("toml-good", vec![("SYSTEM_DEPS_BUILD_INTERNAL", "always")])
+        .add_build_internal("testlib", move |lib, version| {
+            let (_, b) = called_clone.get();
+            called_clone.replace((true, b));
+            let mut lib = pkg_config::Config::new()
+                .print_system_libs(false)
+                .cargo_metadata(false)
+                .probe(lib)
+                .unwrap();
+            lib.version = version.to_string();
+            Ok(Library::from_pkg_config(lib))
+        })
+        .add_build_internal("testdata", move |lib, version| {
+            let (a, _) = called_clone2.get();
+            called_clone2.replace((a, true));
+            let mut lib = pkg_config::Config::new()
+                .print_system_libs(false)
+                .cargo_metadata(false)
+                .probe(lib)
+                .unwrap();
+            lib.version = version.to_string();
+            Ok(Library::from_pkg_config(lib))
+        });
+
+    let (libraries, _flags) = config.probe_full().unwrap();
+    assert_eq!(called.get(), (true, true));
+    assert!(libraries.get("testlib").is_some());
+    assert!(libraries.get("testdata").is_some());
+}
+
+#[test]
+fn build_internal_gobal_override() {
+    // Request to build all libs using global var but disable it for a specific one
+    let called = Rc::new(Cell::new((false, false)));
+    let called_clone = called.clone();
+    let called_clone2 = called.clone();
+    let config = create_config(
+        "toml-good",
+        vec![
+            ("SYSTEM_DEPS_BUILD_INTERNAL", "always"),
+            ("SYSTEM_DEPS_TESTLIB_BUILD_INTERNAL", "never"),
+        ],
+    )
+    .add_build_internal("testlib", move |lib, version| {
+        let (_, b) = called_clone.get();
+        called_clone.replace((true, b));
+        let mut lib = pkg_config::Config::new()
+            .print_system_libs(false)
+            .cargo_metadata(false)
+            .probe(lib)
+            .unwrap();
+        lib.version = version.to_string();
+        Ok(Library::from_pkg_config(lib))
+    })
+    .add_build_internal("testdata", move |lib, version| {
+        let (a, _) = called_clone2.get();
+        called_clone2.replace((a, true));
+        let mut lib = pkg_config::Config::new()
+            .print_system_libs(false)
+            .cargo_metadata(false)
+            .probe(lib)
+            .unwrap();
+        lib.version = version.to_string();
+        Ok(Library::from_pkg_config(lib))
+    });
+
+    let (libraries, _flags) = config.probe_full().unwrap();
+    assert_eq!(called.get(), (false, true));
+    assert!(libraries.get("testlib").is_some());
+    assert!(libraries.get("testdata").is_some());
+}
