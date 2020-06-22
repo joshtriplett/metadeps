@@ -350,113 +350,89 @@ fn override_no_pkg_config_error() {
     );
 }
 
-#[test]
-fn build_internal_always() {
+fn test_build_internal(
+    path: &'static str,
+    env: Vec<(&'static str, &'static str)>,
+    lib: &'static str,
+) -> Result<(HashMap<String, Library>, bool), (Error, bool)> {
     let called = Rc::new(Cell::new(false));
     let called_clone = called.clone();
-    let config = create_config(
-        "toml-good",
-        vec![("SYSTEM_DEPS_TESTLIB_BUILD_INTERNAL", "always")],
-    )
-    .add_build_internal("testlib", move |version| {
+    let config = create_config(path, env).add_build_internal(lib, move |version| {
         called_clone.replace(true);
-        assert_eq!(version, "1");
-        let lib = pkg_config::Config::new()
+        let mut lib = pkg_config::Config::new()
             .print_system_libs(false)
             .cargo_metadata(false)
-            .probe("testlib")
+            .probe(lib)
             .unwrap();
+        lib.version = version.to_string();
         Ok(Library::from_pkg_config(lib))
     });
 
-    let (libraries, _flags) = config.probe_full().unwrap();
+    match config.probe_full() {
+        Ok((libraries, _flags)) => Ok((libraries, called.get())),
+        Err(e) => Err((e, called.get())),
+    }
+}
 
-    assert_eq!(called.get(), true);
+#[test]
+fn build_internal_always() {
+    let (libraries, called) = test_build_internal(
+        "toml-good",
+        vec![("SYSTEM_DEPS_TESTLIB_BUILD_INTERNAL", "always")],
+        "testlib",
+    )
+    .unwrap();
+
+    assert_eq!(called, true);
     assert!(libraries.get("testlib").is_some());
 }
 
 #[test]
 fn build_internal_auto_not_called() {
     // No need to build the lib as the existing version is new enough
-    let called = Rc::new(Cell::new(false));
-    let called_clone = called.clone();
-    let config = create_config(
+    let (libraries, called) = test_build_internal(
         "toml-good",
         vec![("SYSTEM_DEPS_TESTLIB_BUILD_INTERNAL", "auto")],
+        "testlib",
     )
-    .add_build_internal("testlib", move |_version| {
-        called_clone.replace(true);
-        let lib = pkg_config::Config::new()
-            .print_system_libs(false)
-            .cargo_metadata(false)
-            .probe("testlib")
-            .unwrap();
-        Ok(Library::from_pkg_config(lib))
-    });
+    .unwrap();
 
-    let (libraries, _flags) = config.probe_full().unwrap();
-
-    assert_eq!(called.get(), false);
+    assert_eq!(called, false);
     assert!(libraries.get("testlib").is_some());
 }
 
 #[test]
 fn build_internal_auto_called() {
     // Version 5 is not available so we should try building
-    let called = Rc::new(Cell::new(false));
-    let called_clone = called.clone();
-    let config = create_config(
+    let (libraries, called) = test_build_internal(
         "toml-feature-versions",
         vec![
             ("SYSTEM_DEPS_TESTDATA_BUILD_INTERNAL", "auto"),
             ("CARGO_FEATURE_V5", ""),
         ],
+        "testdata",
     )
-    .add_build_internal("testdata", move |version| {
-        called_clone.replace(true);
-        assert_eq!(version, "5");
-        let mut lib = pkg_config::Config::new()
-            .print_system_libs(false)
-            .cargo_metadata(false)
-            .probe("testdata")
-            .unwrap();
-        lib.version = "5.0".to_string();
-        Ok(Library::from_pkg_config(lib))
-    });
+    .unwrap();
 
-    let (libraries, _flags) = config.probe_full().unwrap();
-
-    assert_eq!(called.get(), true);
+    assert_eq!(called, true);
     assert!(libraries.get("testdata").is_some());
 }
 
 #[test]
 fn build_internal_auto_never() {
     // Version 5 is not available but we forbid to build the lib
-    let called = Rc::new(Cell::new(false));
-    let called_clone = called.clone();
-    let config = create_config(
+    let (err, called) = test_build_internal(
         "toml-feature-versions",
         vec![
             ("SYSTEM_DEPS_TESTDATA_BUILD_INTERNAL", "never"),
             ("CARGO_FEATURE_V5", ""),
         ],
+        "testdata",
     )
-    .add_build_internal("testdata", move |version| {
-        called_clone.replace(true);
-        assert_eq!(version, "5");
-        let lib = pkg_config::Config::new()
-            .print_system_libs(false)
-            .cargo_metadata(false)
-            .probe("testdata")
-            .unwrap();
-        Ok(Library::from_pkg_config(lib))
-    });
+    .unwrap_err();
 
-    let err = config.probe_full().unwrap_err();
     assert!(matches!(err, Error::PkgConfig(..)));
-
-    assert_eq!(called.get(), false);
+    assert_eq!(called, false);
 }
 
 #[test]
