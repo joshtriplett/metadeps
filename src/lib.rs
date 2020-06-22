@@ -77,9 +77,9 @@
 //! ```should_panic
 //! fn main() {
 //!     system_deps::Config::new()
-//!         .add_build_internal("testlib", |version| {
+//!         .add_build_internal("testlib", |lib, version| {
 //!             // Actually build the library here
-//!             system_deps::Library::from_internal_pkg_config("build/path-to-pc-file", "testlib", version)
+//!             system_deps::Library::from_internal_pkg_config("build/path-to-pc-file", lib, version)
 //!          })
 //!         .probe()
 //!         .unwrap();
@@ -172,7 +172,8 @@ impl BuildInternalClosureError {
     }
 }
 
-type FnBuildInternal = dyn FnOnce(&str) -> std::result::Result<Library, BuildInternalClosureError>;
+type FnBuildInternal =
+    dyn FnOnce(&str, &str) -> std::result::Result<Library, BuildInternalClosureError>;
 
 /// Structure used to configure `metadata` before starting to probe for dependencies
 pub struct Config {
@@ -220,10 +221,10 @@ impl Config {
     /// # Arguments
     /// * `name`: the name of the library, as defined in `Cargo.toml`
     /// * `func`: closure called when internally building the library.
-    /// It receives as argument the minimum library version required.
+    /// It receives as argument the library name and the minimum version required.
     pub fn add_build_internal<F>(self, name: &str, func: F) -> Self
     where
-        F: 'static + FnOnce(&str) -> std::result::Result<Library, BuildInternalClosureError>,
+        F: 'static + FnOnce(&str, &str) -> std::result::Result<Library, BuildInternalClosureError>,
     {
         let mut build_internals = self.build_internals;
         build_internals.insert(name.to_string(), Box::new(func));
@@ -403,7 +404,9 @@ impl Config {
 
     fn call_build_internal(&mut self, name: &str, version: &str) -> Result<Library, Error> {
         let lib = match self.build_internals.remove(name) {
-            Some(f) => f(version).map_err(|e| Error::BuildInternalClosureError(name.into(), e))?,
+            Some(f) => {
+                f(name, version).map_err(|e| Error::BuildInternalClosureError(name.into(), e))?
+            }
             None => return Err(Error::BuildInternalNoClosure(name.into(), version.into())),
         };
 
@@ -554,10 +557,10 @@ impl Library {
     ///
     /// ```
     /// let mut config = system_deps::Config::new();
-    /// config.add_build_internal("mylib", |version| {
+    /// config.add_build_internal("mylib", |lib, version| {
     ///   // Actually build the library here
     ///   system_deps::Library::from_internal_pkg_config("build-dir",
-    ///       "mylib", version)
+    ///       lib, version)
     /// });
     /// ```
     pub fn from_internal_pkg_config<P>(

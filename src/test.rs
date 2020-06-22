@@ -357,7 +357,7 @@ fn test_build_internal(
 ) -> Result<(HashMap<String, Library>, bool), (Error, bool)> {
     let called = Rc::new(Cell::new(false));
     let called_clone = called.clone();
-    let config = create_config(path, env).add_build_internal(lib, move |version| {
+    let config = create_config(path, env).add_build_internal(lib, move |lib, version| {
         called_clone.replace(true);
         let mut lib = pkg_config::Config::new()
             .print_system_libs(false)
@@ -469,12 +469,13 @@ fn build_internal_wrong_version() {
             ("CARGO_FEATURE_V5", ""),
         ],
     )
-    .add_build_internal("testdata", move |_version| {
+    .add_build_internal("testdata", move |lib, _version| {
         called_clone.replace(true);
+        assert_eq!(lib, "testdata");
         let lib = pkg_config::Config::new()
             .print_system_libs(false)
             .cargo_metadata(false)
-            .probe("testdata")
+            .probe(lib)
             .unwrap();
         Ok(Library::from_pkg_config(lib))
     });
@@ -492,8 +493,9 @@ fn build_internal_fail() {
         "toml-good",
         vec![("SYSTEM_DEPS_TESTLIB_BUILD_INTERNAL", "always")],
     )
-    .add_build_internal("testlib", move |_version| {
+    .add_build_internal("testlib", move |lib, _version| {
         called_clone.replace(true);
+        assert_eq!(lib, "testlib");
         Err(BuildInternalClosureError::failed("Something went wrong"))
     });
 
