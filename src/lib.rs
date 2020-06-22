@@ -88,9 +88,9 @@
 //!
 //! This feature can be controlled using the `SYSTEM_DEPS_$NAME_BUILD_INTERNAL` environment variable
 //! which can have the following values:
-//! - `auto`: (default) build the dependency only if the required version has not been found by `pkg-config`;
+//! - `auto`: build the dependency only if the required version has not been found by `pkg-config`;
 //! - `always`: always build the dependency, ignoring any version which may be installed on the system;
-//! - `never`: never build the dependency, `system-deps` will fail if the required version is not found on the system.
+//! - `never`: (default) never build the dependency, `system-deps` will fail if the required version is not found on the system.
 
 #![deny(missing_docs)]
 
