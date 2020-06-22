@@ -1,18 +1,24 @@
 //!`system-deps` lets you write system dependencies in `Cargo.toml` metadata,
 //! rather than programmatically in `build.rs`. This makes those dependencies
 //! declarative, so other tools can read them as well.
-//! Then, to declare a dependency on `testlib >= 1.2`, a conditional dependency
-//! on `testdata >= 4.5` and a dependency on `glib-2.0 >= 2.64`
+//!
+//! # Usage
+//! In your `Cargo.toml`:
+//!
+//! ```toml
+//! [build-dependencies]
+//! system-deps = "1.2"
+//! ```
+//!
+//! Then, to declare a dependency on `testlib >= 1.2`
 //! add the following section:
 //!
 //! ```toml
 //! [package.metadata.system-deps]
 //! testlib = "1.2"
-//! testdata = { version = "4.5", feature = "use-testdata" }
-//! glib = { name = "glib-2.0", version = "2.64" }
 //! ```
 //!
-//! In your `build.rs`, add:
+//! Finally, in your `build.rs`, add:
 //!
 //! ```should_panic
 //! fn main() {
@@ -20,18 +26,71 @@
 //! }
 //! ```
 //!
-//! Dependency versions can also be controlled using features:
+//! # Optional dependency
+//! You can easily declare an optional system dependency by associating it with a feature:
+//!
+//! ```toml
+//! [package.metadata.system-deps]
+//! testdata = { version = "4.5", feature = "use-testdata" }
+//! ```
+//!
+//! # Overriding library name
+//! `toml` keys cannot contain dot characters so if your library name does you can define it using the `name` field:
+//!
+//! ```toml
+//! [package.metadata.system-deps]
+//! glib = { name = "glib-2.0", version = "2.64" }
+//! ```
+//! # Feature versions
+//! `-sys` crates willing to support various versions of their underlying system libraries
+//! can use features to control the version of the dependency required.
+//! `system-deps` will pick the highest version among enabled features.
 //!
 //! ```toml
 //! [features]
 //! v1_2 = []
-//! v1_4 = ["v1_4"]
+//! v1_4 = ["v1_2"]
+//! v1_6 = ["v1_4"]
 //!
-//! [package.system-deps]
-//! gstreamer = { name = "gstreamer-1.0", version = "1.0", feature-versions = { v1_2 = "1.2", v1_4 = "1.4" }}
+//! [package.metadata.system-deps]
+//! gstreamer = { name = "gstreamer-1.0", version = "1.0", feature-versions = { v1_2 = "1.2", v1_4 = "1.4", v1_6 = "1.6" }}
 //! ```
 //!
-//! In this case the highest version among enabled features will be used.
+//! # Overriding build flags
+//! By default `system-deps` automatically defines the required build flags for each dependency using the information fetched from `pkg-config`.
+//! These flags can be overriden using environment variables if needed:
+//! - `SYSTEM_DEPS_$NAME_SEARCH_NATIVE` to override the [`cargo:rustc-link-search=native`](https://doc.rust-lang.org/cargo/reference/build-scripts.html#cargorustc-link-searchkindpath) flag;
+//! - `SYSTEM_DEPS_$NAME_SEARCH_FRAMEWORK` to override the [`cargo:rustc-link-search=framework`](https://doc.rust-lang.org/cargo/reference/build-scripts.html#cargorustc-link-searchkindpath) flag;
+//! - `SYSTEM_DEPS_$NAME_LIB` to override the [`cargo:rustc-link-lib`](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rustc-link-lib) flag;
+//! - `SYSTEM_DEPS_$NAME_LIB_FRAMEWORK` to override the [`cargo:rustc-link-lib=framework`](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rustc-link-lib) flag;
+//! - `SYSTEM_DEPS_$NAME_INCLUDE` to override the [`cargo:include`](https://kornel.ski/rust-sys-crate#headers) flag.
+//!
+//! With `$NAME` being the upper case name of the key defining the dependency in `Cargo.toml`.
+//! For example `SYSTEM_DEPS_TESTLIB_SEARCH_NATIVE=/opt/lib` could be used to override a dependency named `testlib`.
+//!
+//! One can also define the environment variable `SYSTEM_DEPS_$NAME_NO_PKG_CONFIG` to fully disable `pkg-config` lookup
+//! for the given dependency. In this case at least SYSTEM_DEPS_$NAME_LIB or SYSTEM_DEPS_$NAME_LIB_FRAMEWORK should be defined as well.
+//!
+//! # Statically build system library
+//! `-sys` crates can provide support for building and statically link their underlying system libray as part of their build process.
+//! Here is how to do this in your `build.rs`:
+//! ```should_panic
+//! fn main() {
+//!     system_deps::Config::new()
+//!         .add_build_internal("testlib", |version| {
+//!             // Actually build the library here
+//!             system_deps::Library::from_internal_pkg_config("build/path-to-pc-file", "testlib", version)
+//!          })
+//!         .probe()
+//!         .unwrap();
+//! }
+//! ```
+//!
+//! This feature can be controlled using the `SYSTEM_DEPS_$NAME_BUILD_INTERNAL` environment variable
+//! which can have the following values:
+//! - `auto`: (default) build the dependency only if the required version has not been found by `pkg-config`;
+//! - `always`: always build the dependency, ignoring any version which may be installed on the system;
+//! - `never`: never build the dependency, `system-deps` will fail if the required version is not found on the system.
 
 #![deny(missing_docs)]
 
@@ -74,7 +133,7 @@ pub enum Error {
     /// `SYSTEM_DEPS_$NAME_LIB_FRAMEWORK`
     #[error("You should define at least one lib using {} or {}", flag_override_var(.0, "LIB"), flag_override_var(.0, "LIB_FRAMEWORK"))]
     MissingLib(String),
-    /// An environnement variable in the form of `SYSTEM_DEPS_$NAME_BUILD_INTERNAL`
+    /// An environment variable in the form of `SYSTEM_DEPS_$NAME_BUILD_INTERNAL`
     /// contained an invalid value (allowed: `auto`, `always`, `never`)
     #[error("{0}")]
     BuildInternalInvalid(String),
@@ -153,7 +212,7 @@ impl Config {
 
     /// Add hook so system-deps can internally build library `name` if requested by user.
     ///
-    /// It will only be triggered if the environnement variable
+    /// It will only be triggered if the environment variable
     /// `SYSTEM_DEPS_$NAME_BUILD_INTERNAL` is defined with either `always` or
     /// `auto` as value. In the latter case, `func` is called only if the requested
     /// version of the library was not found on the system.
@@ -429,7 +488,7 @@ impl Config {
 pub enum Source {
     /// Settings have been retrieved from `pkg-config`
     PkgConfig,
-    /// Settings have been defined using user defined environnement variables
+    /// Settings have been defined using user defined environment variables
     EnvVariables,
 }
 
