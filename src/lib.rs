@@ -66,6 +66,18 @@
 //! version = "1.6"
 //! ```
 //!
+//! The same mechanism can be used to require a different library name depending on the version:
+//!
+//! ```toml
+//! [package.metadata.system-deps.gst_gl]
+//! name = "gstreamer-gl-1.0"
+//! version = "1.14"
+//!
+//! [package.metadata.system-deps.gst_gl.v1_18]
+//! version = "1.18"
+//! name = "gstreamer-gl-egl-1.0"
+//! ```
+//!
 //! # Overriding build flags
 //! By default `system-deps` automatically defines the required build flags for each dependency using the information fetched from `pkg-config`.
 //! These flags can be overriden using environment variables if needed:
@@ -200,12 +212,14 @@ enum EnvVariable {
 
 struct FeatureOverride {
     version: String,
+    name: Option<String>,
 }
 
 impl FeatureOverride {
-    fn new(version: &str) -> Self {
+    fn new(version: &str, name: Option<&String>) -> Self {
         Self {
             version: version.to_string(),
+            name: name.cloned(),
         }
     }
 }
@@ -373,7 +387,7 @@ impl Config {
         let mut libraries = HashMap::new();
         for (name, value) in table {
             let (lib_name, version) = match value {
-                toml::Value::String(ref s) => (name, s.to_string()),
+                toml::Value::String(ref s) => (name.to_string(), s.to_string()),
                 toml::Value::Table(ref t) => {
                     let mut feature = None;
                     let mut version = None;
@@ -394,11 +408,15 @@ impl Config {
                                 if version_feature.starts_with("v") =>
                             {
                                 let mut override_version = None;
+                                let mut override_name = None;
 
                                 for (k, v) in version_settings {
                                     match (k.as_str(), v) {
                                         ("version", &toml::Value::String(ref feat_vers)) => {
                                             override_version = Some(feat_vers);
+                                        }
+                                        ("name", &toml::Value::String(ref feat_name)) => {
+                                            override_name = Some(feat_name);
                                         }
                                         _ => {
                                             return Err(Error::InvalidMetadata(format!(
@@ -421,7 +439,8 @@ impl Config {
                                 })?;
 
                                 if self.has_feature(&version_feature) {
-                                    let f_override = FeatureOverride::new(&override_version);
+                                    let f_override =
+                                        FeatureOverride::new(&override_version, override_name);
                                     enabled_feature_overrides.push(f_override);
                                 }
                             }
@@ -442,7 +461,7 @@ impl Config {
                         }
                     }
 
-                    let version = {
+                    let (version, lib_name) = {
                         // Pick the highest feature enabled version
                         if !enabled_feature_overrides.is_empty() {
                             enabled_feature_overrides.sort_by(|a, b| {
@@ -451,14 +470,15 @@ impl Config {
                                     .ord()
                                     .expect("invalid version")
                             });
-                            Some(enabled_feature_overrides[0].version.clone())
+                            let o = &enabled_feature_overrides[0];
+                            (Some(o.version.clone()), o.name.clone())
                         } else {
-                            version.cloned()
+                            (version.cloned(), lib_name.cloned())
                         }
                     };
 
                     (
-                        lib_name.unwrap_or(name),
+                        lib_name.unwrap_or(name.to_string()),
                         version.ok_or_else(|| {
                             Error::InvalidMetadata(format!("No version in {}.{}", key, name))
                         })?,
@@ -477,13 +497,13 @@ impl Config {
             let library = if self.env.contains(&EnvVariable::new_no_pkg_config(name)) {
                 Library::from_env_variables()
             } else if build_internal == BuildInternal::Always {
-                self.call_build_internal(lib_name, &version)?
+                self.call_build_internal(&lib_name, &version)?
             } else {
                 match pkg_config::Config::new()
                     .atleast_version(&version)
                     .print_system_libs(false)
                     .cargo_metadata(false)
-                    .probe(lib_name)
+                    .probe(&lib_name)
                 {
                     Ok(lib) => Library::from_pkg_config(lib),
                     Err(e) => {
