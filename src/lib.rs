@@ -57,13 +57,9 @@
 //! [package.metadata.system-deps.gstreamer_1_0]
 //! name = "gstreamer-1.0"
 //! version = "1.0"
-//!
-//! [package.metadata.system-deps.gstreamer_1_0.v1_2]
-//! version = "1.2"
-//! [package.metadata.system-deps.gstreamer_1_0.v1_4]
-//! version = "1.4"
-//! [package.metadata.system-deps.gstreamer_1_0.v1_6]
-//! version = "1.6"
+//! v1_2 = { version = "1.2" }
+//! v1_4 = { version = "1.4" }
+//! v1_6 = { version = "1.6" }
 //! ```
 //!
 //! The same mechanism can be used to require a different library name depending on the version:
@@ -72,10 +68,7 @@
 //! [package.metadata.system-deps.gst_gl]
 //! name = "gstreamer-gl-1.0"
 //! version = "1.14"
-//!
-//! [package.metadata.system-deps.gst_gl.v1_18]
-//! version = "1.18"
-//! name = "gstreamer-gl-egl-1.0"
+//! v1_18 = { version = "1.18", name = "gstreamer-gl-egl-1.0" }
 //! ```
 //!
 //! # Overriding build flags
