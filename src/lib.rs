@@ -46,7 +46,7 @@
 //! `-sys` crates willing to support various versions of their underlying system libraries
 //! can use features to control the version of the dependency required.
 //! `system-deps` will pick the highest version among enabled features.
-//! Such version features should use the pattern `v1_0`, `v1_2`, etc.
+//! Such version features must use the pattern `v1_0`, `v1_2`, etc.
 //!
 //! ```toml
 //! [features]
