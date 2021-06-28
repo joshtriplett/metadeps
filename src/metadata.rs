@@ -230,10 +230,11 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use cfg_expr::Expression;
-    use std::path::PathBuf;
+    use std::{env, path::PathBuf};
 
     fn parse_file(dir: &str) -> Result<MetaData, crate::Error> {
-        let mut p = PathBuf::new();
+        let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+        let mut p: PathBuf = manifest_dir.into();
         p.push("src");
         p.push("tests");
         p.push(dir);
